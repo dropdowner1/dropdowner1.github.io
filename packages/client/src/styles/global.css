@@ -1,3 +1,31 @@
+/*
+ * Global palette + typography. The look is SNES/16-bit: a deep
+ * indigo backdrop, a small pixel-art scanline, sharp panel corners,
+ * and two pixel fonts wired in via index.html — DotGothic16 (full
+ * Japanese coverage) for body copy, Press Start 2P (chunky ASCII)
+ * for titles and HUD labels.
+ *
+ * Both fonts ship from Google Fonts under the SIL Open Font License,
+ * so nothing has to be vendored into the repo.
+ */
+:root {
+  --snes-bg: #0b0b1c;
+  --snes-bg-deep: #07071a;
+  --snes-panel: #15163c;
+  --snes-panel-edge: #2b2d6b;
+  --snes-panel-shadow: #050616;
+  --snes-accent: #ffd60a;
+  --snes-accent-soft: #ffe98a;
+  --snes-text: #f0f0f5;
+  --snes-text-dim: #9aa0c2;
+  --snes-magenta: #ff5fa7;
+  --snes-cyan: #5fd4ff;
+
+  --pixel-font-jp: "DotGothic16", "M PLUS 1 Code", "Hiragino Kaku Gothic ProN",
+    "Hiragino Sans", Meiryo, sans-serif;
+  --pixel-font-en: "Press Start 2P", "DotGothic16", monospace;
+}
+
 *,
 *::before,
 *::after {
@@ -10,11 +38,15 @@ body,
   margin: 0;
   padding: 0;
   height: 100%;
-  background: #0a0a14;
-  color: #ffffff;
-  font-family: system-ui, -apple-system, "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN",
-    "Hiragino Sans", Meiryo, sans-serif;
+  background: var(--snes-bg);
+  color: var(--snes-text);
+  font-family: var(--pixel-font-jp);
+  font-size: 15px;
   overflow: hidden;
+  /* Crisp edges everywhere — soft anti-aliasing fights the pixel aesthetic. */
+  image-rendering: pixelated;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
 }
 
 button {
@@ -30,67 +62,132 @@ button {
   inset: 0;
   display: grid;
   place-items: center;
-  background: #1a1a2e;
+  background:
+    /* a faint diagonal tile pattern that nods to SNES Mode-7 backdrops */
+    repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.018) 0,
+      rgba(255, 255, 255, 0.018) 2px,
+      transparent 2px,
+      transparent 6px
+    ),
+    radial-gradient(ellipse at 50% 0%, rgba(95, 95, 200, 0.18) 0%, transparent 60%),
+    var(--snes-bg);
+}
+
+/*
+ * A faint 1-pixel horizontal scanline overlay on every scene, sized to
+ * the device pixel so it reads as a CRT-style screen door rather than
+ * a fuzz pattern. Pointer-events off so it never eats clicks.
+ */
+.scene::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.18) 0,
+    rgba(0, 0, 0, 0.18) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: multiply;
 }
 
 .keyhint {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 16px;
+  bottom: 14px;
   text-align: center;
+  font-family: var(--pixel-font-jp);
   font-size: 14px;
-  color: #9999a8;
-  letter-spacing: 0.04em;
+  color: var(--snes-text-dim);
+  letter-spacing: 0.05em;
   pointer-events: none;
   padding: 0 24px;
+  text-shadow: 1px 1px 0 var(--snes-bg-deep);
 }
 
 /* ---------- Title ---------- */
 
 .title-scene {
-  background: radial-gradient(ellipse at 30% 20%, #2a1b3d 0%, transparent 60%),
-    radial-gradient(ellipse at 70% 80%, #1b2d3a 0%, transparent 60%), #0b0b1c;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.02) 0,
+      rgba(255, 255, 255, 0.02) 2px,
+      transparent 2px,
+      transparent 6px
+    ),
+    radial-gradient(ellipse at 30% 20%, #2a1b4d 0%, transparent 60%),
+    radial-gradient(ellipse at 70% 80%, #1b2d5a 0%, transparent 60%),
+    var(--snes-bg-deep);
 }
 
 .title-content {
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
 }
 
 .title-logo {
-  font-size: 6rem;
+  font-family: var(--pixel-font-en);
+  font-size: 3.4rem;
   margin: 0;
-  background: linear-gradient(180deg, #ffd60a 0%, #ff7a3a 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  letter-spacing: -0.02em;
-  font-weight: 900;
+  color: var(--snes-accent);
+  letter-spacing: 0.04em;
+  /* Hard pixel shadow stack — three colours in 4-pixel steps mimic
+     the chunky drop-shadow used on SNES title screens. */
+  text-shadow:
+    4px 4px 0 var(--snes-magenta),
+    8px 8px 0 #1c1340,
+    0 0 0 currentColor;
+  line-height: 1.05;
 }
 
 .title-sub {
-  margin: 0.5rem 0 3rem;
-  color: #c8c8d8;
-  font-size: 1.1rem;
-  letter-spacing: 0.1em;
+  margin: 0;
+  color: var(--snes-cyan);
+  font-family: var(--pixel-font-jp);
+  font-size: 1.05rem;
+  letter-spacing: 0.18em;
+  text-shadow: 2px 2px 0 #0a1530;
 }
 
 .title-start {
-  background: transparent;
-  border: 2px solid #ffd60a;
-  color: #ffd60a;
-  padding: 1rem 2.5rem;
-  font-size: 1.1rem;
-  letter-spacing: 0.1em;
-  border-radius: 999px;
-  transition: background 120ms ease, color 120ms ease;
-  animation: pulse 1.8s infinite ease-in-out;
+  background: var(--snes-panel);
+  border: none;
+  color: var(--snes-accent);
+  padding: 0.85rem 2.4rem;
+  font-family: var(--pixel-font-en);
+  font-size: 0.95rem;
+  letter-spacing: 0.12em;
+  border-radius: 0;
+  /* Stepped pixel border via a stack of box-shadows. The outer black
+     ring sits 4px out, then a thin highlight 2px out, giving the
+     button that "stamped" SNES feel without any image asset. */
+  box-shadow:
+    0 0 0 2px var(--snes-accent),
+    0 0 0 4px #0a0a14,
+    4px 4px 0 0 #050616;
+  transition: transform 80ms ease, color 80ms ease, background 80ms ease;
+  margin: 0;
 }
 
 .title-start:hover,
 .title-start:focus-visible {
-  background: #ffd60a;
+  background: var(--snes-accent);
   color: #0a0a14;
+  transform: translate(2px, 2px);
+  box-shadow:
+    0 0 0 2px var(--snes-accent),
+    0 0 0 4px #0a0a14,
+    2px 2px 0 0 #050616;
   outline: none;
 }
 
@@ -129,34 +226,42 @@ button {
 }
 
 .overlay-panel {
-  background: rgba(20, 20, 40, 0.8);
-  border: 1px solid rgba(255, 214, 10, 0.3);
-  padding: 12px 20px;
-  border-radius: 8px;
-  min-width: 200px;
+  background: var(--snes-panel);
+  padding: 10px 18px;
+  border-radius: 0;
+  min-width: 220px;
   text-align: right;
+  /* Two-tone pixel border: inner highlight + outer hard shadow. */
+  box-shadow:
+    inset 0 0 0 2px var(--snes-panel-edge),
+    0 0 0 2px var(--snes-bg-deep),
+    4px 4px 0 0 var(--snes-panel-shadow);
 }
 
 .panel-label {
-  font-size: 12px;
-  color: #9999a8;
-  margin-bottom: 4px;
+  font-family: var(--pixel-font-en);
+  font-size: 10px;
+  color: var(--snes-cyan);
+  margin-bottom: 6px;
+  letter-spacing: 0.1em;
 }
 
 .panel-value {
-  font-size: 28px;
-  color: #ffd60a;
-  font-weight: 700;
+  font-family: var(--pixel-font-en);
+  font-size: 22px;
+  color: var(--snes-accent);
+  font-weight: normal;
+  letter-spacing: 0.02em;
 }
 
 .panel-sub {
-  color: #9999a8;
-  font-size: 18px;
+  color: var(--snes-text-dim);
+  font-size: 14px;
 }
 
 .digital {
   font-variant-numeric: tabular-nums;
-  font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-family: var(--pixel-font-en);
 }
 
 /* ---------- Result ---------- */
@@ -583,4 +688,205 @@ button {
   border-radius: 999px;
   padding: 0.5rem 1.2rem;
   font-size: 0.95rem;
+}
+
+/* -------------------------- Solo HUD: cleared panel --------------------- */
+
+.cleared-panel .panel-value {
+  color: var(--snes-magenta);
+}
+
+/* -------------------------- Pause overlay ------------------------------- */
+
+.pause-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(7, 7, 26, 0.78);
+  display: grid;
+  place-items: center;
+}
+
+.pause-menu {
+  background: var(--snes-panel);
+  padding: 28px 40px 32px;
+  min-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: stretch;
+  box-shadow:
+    inset 0 0 0 2px var(--snes-panel-edge),
+    0 0 0 2px var(--snes-bg-deep),
+    8px 8px 0 0 var(--snes-panel-shadow);
+}
+
+.pause-title {
+  margin: 0 0 8px;
+  font-family: var(--pixel-font-en);
+  font-size: 1.4rem;
+  color: var(--snes-accent);
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-shadow: 2px 2px 0 var(--snes-bg-deep);
+}
+
+.pause-btn {
+  background: var(--snes-bg-deep);
+  color: var(--snes-text);
+  border: none;
+  border-radius: 0;
+  padding: 14px 18px;
+  font-family: var(--pixel-font-jp);
+  font-size: 1.05rem;
+  letter-spacing: 0.06em;
+  box-shadow:
+    inset 0 0 0 2px var(--snes-panel-edge),
+    2px 2px 0 0 var(--snes-panel-shadow);
+  transition: transform 80ms ease;
+}
+
+.pause-btn:hover,
+.pause-btn:focus-visible {
+  transform: translate(1px, 1px);
+  outline: none;
+  box-shadow:
+    inset 0 0 0 2px var(--snes-accent),
+    1px 1px 0 0 var(--snes-panel-shadow);
+}
+
+.pause-btn-primary {
+  background: var(--snes-accent);
+  color: #0a0a14;
+  box-shadow:
+    inset 0 0 0 2px #c79f00,
+    2px 2px 0 0 var(--snes-panel-shadow);
+}
+
+.pause-btn-primary:hover,
+.pause-btn-primary:focus-visible {
+  background: var(--snes-accent-soft);
+  box-shadow:
+    inset 0 0 0 2px #c79f00,
+    1px 1px 0 0 var(--snes-panel-shadow);
+}
+
+.pause-settings-stub {
+  color: var(--snes-text-dim);
+  font-size: 0.95rem;
+  margin: 0;
+  text-align: center;
+}
+
+/* ----------------- Retro overrides for lobby / VS panels ---------------- */
+
+.lobby-connect,
+.lobby-create,
+.lobby-rooms li,
+.match-lobby-players li,
+.match-lobby-running,
+.vs-overlay {
+  border-radius: 0 !important;
+  box-shadow:
+    inset 0 0 0 2px var(--snes-panel-edge),
+    0 0 0 2px var(--snes-bg-deep),
+    4px 4px 0 0 var(--snes-panel-shadow);
+  border: none !important;
+  background: var(--snes-panel) !important;
+}
+
+.lobby-header h2 {
+  font-family: var(--pixel-font-en);
+  font-size: 1.4rem;
+  letter-spacing: 0.08em;
+  text-shadow: 2px 2px 0 var(--snes-bg-deep);
+}
+
+.lobby-field input,
+.lobby-field select {
+  border-radius: 0;
+  border: none;
+  font-family: var(--pixel-font-jp);
+  background: var(--snes-bg-deep);
+  color: var(--snes-text);
+  box-shadow: inset 0 0 0 2px var(--snes-panel-edge);
+}
+
+.lobby-field input:focus,
+.lobby-field select:focus {
+  box-shadow: inset 0 0 0 2px var(--snes-accent);
+}
+
+.lobby-back {
+  font-family: var(--pixel-font-en);
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  border-radius: 0;
+  border: none;
+  background: var(--snes-bg-deep);
+  box-shadow:
+    inset 0 0 0 2px var(--snes-panel-edge),
+    2px 2px 0 0 var(--snes-panel-shadow);
+}
+
+.lobby-back:hover,
+.lobby-back:focus-visible {
+  box-shadow:
+    inset 0 0 0 2px var(--snes-accent),
+    1px 1px 0 0 var(--snes-panel-shadow);
+}
+
+.lobby-connect button,
+.lobby-create button,
+.match-lobby-actions button,
+.lobby-rooms li button {
+  border-radius: 0;
+  border: none;
+  font-family: var(--pixel-font-jp);
+  letter-spacing: 0.06em;
+  box-shadow:
+    inset 0 0 0 2px #c79f00,
+    3px 3px 0 0 var(--snes-panel-shadow);
+}
+
+.lobby-connect button:hover:not(:disabled),
+.lobby-create button:hover:not(:disabled),
+.match-lobby-actions button:hover:not(:disabled),
+.lobby-rooms li button:hover:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow:
+    inset 0 0 0 2px #c79f00,
+    2px 2px 0 0 var(--snes-panel-shadow);
+}
+
+.match-lobby-countdown {
+  font-family: var(--pixel-font-en);
+  letter-spacing: 0.08em;
+  text-shadow: 2px 2px 0 var(--snes-bg-deep);
+}
+
+.vs-name {
+  font-family: var(--pixel-font-en);
+  letter-spacing: 0.06em;
+  text-shadow: 2px 2px 0 var(--snes-bg-deep);
+}
+
+.vs-score {
+  font-family: var(--pixel-font-en);
+  letter-spacing: 0.02em;
+}
+
+.vs-chain {
+  font-family: var(--pixel-font-jp);
+}
+
+/* Result screen */
+.result-title {
+  font-family: var(--pixel-font-en);
+  text-shadow: 3px 3px 0 var(--snes-bg-deep);
+}
+
+.result-btn {
+  font-family: var(--pixel-font-jp);
+  border-radius: 0;
 }

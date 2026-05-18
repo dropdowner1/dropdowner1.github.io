@@ -42,10 +42,29 @@ import { trySpawn } from './spawn';
 
 // ---------- Config / timing constants ----------
 
-// One cell every 36 frames = 0.6s at 60fps. Slightly slower than the
-// initial 30f (0.5s) baseline based on playtest feel.
+// Starting natural-fall pace: one cell every 36 frames = 0.6s at 60fps.
+// This is the "level 0" speed; `fallIntervalForCleared(cellsCleared)`
+// shortens it as the player chews through puyos so the game accelerates
+// in the SNES tradition.
 export const FALL_INTERVAL_NORMAL = 36;
 export const FALL_INTERVAL_SOFT = 2;
+/** Floor for the natural-fall interval — the fastest the gauge ever gets. */
+export const FALL_INTERVAL_MIN = 6;
+/** Puyos cleared between two consecutive speed bumps. */
+export const FALL_SPEEDUP_CLEARED_PER_LEVEL = 30;
+/** Frames knocked off the natural fall interval per level. */
+export const FALL_SPEEDUP_FRAMES_PER_LEVEL = 4;
+
+/**
+ * Natural-fall interval (in frames) for the given cumulative cleared
+ * count. Floors at `FALL_INTERVAL_MIN` so the game is still readable
+ * even after hundreds of pops. Pure function — used by both the
+ * simulator and the HUD.
+ */
+export function fallIntervalForCleared(cellsCleared: number): number {
+  const level = Math.floor(Math.max(0, cellsCleared) / FALL_SPEEDUP_CLEARED_PER_LEVEL);
+  return Math.max(FALL_INTERVAL_MIN, FALL_INTERVAL_NORMAL - level * FALL_SPEEDUP_FRAMES_PER_LEVEL);
+}
 // 18 frames = 0.3s at 60fps. The grace window between a piece touching
 // the ground and locking — gives the player a beat to slide it sideways.
 export const LOCK_DELAY_FRAMES = 18;
@@ -152,6 +171,13 @@ export interface PlayerState {
   sentGarbage: number;
   chainCount: number;
   maxChain: number;
+  /**
+   * Total normal-color cells cleared by this player across the whole
+   * match. Drives the "ぷよ消し総数" HUD and the progressive fall-speed
+   * curve (see `fallIntervalForCleared`). Ojama is NOT counted here —
+   * only the cells that came in via popping clusters.
+   */
+  cellsCleared: number;
   // Falling-phase transient state
   fallTimer: number;
   lockTimer: number;
@@ -252,6 +278,7 @@ export function createMatchState(config: MatchConfig): MatchState {
     sentGarbage: 0,
     chainCount: 0,
     maxChain: 0,
+    cellsCleared: 0,
     fallTimer: 0,
     lockTimer: 0,
     lockResets: 0,
@@ -401,7 +428,9 @@ function handleFalling(
   for (const action of actions) applyAction(player, action);
 
   // 2. Gravity.
-  const fallInterval = player.softDrop ? FALL_INTERVAL_SOFT : FALL_INTERVAL_NORMAL;
+  const fallInterval = player.softDrop
+    ? FALL_INTERVAL_SOFT
+    : fallIntervalForCleared(player.cellsCleared);
   player.fallTimer++;
   if (player.fallTimer >= fallInterval) {
     const down = tryMove(player.board, player.current, 0, -1);
@@ -576,9 +605,14 @@ function applyChainTick(
   }
 
   // 2. Clear cluster cells + swept ojama.
+  let clearedThisTick = 0;
   for (const cluster of clusters) {
-    for (const { x, y } of cluster.cells) setCell(player.board, x, y, null);
+    for (const { x, y } of cluster.cells) {
+      setCell(player.board, x, y, null);
+      clearedThisTick++;
+    }
   }
+  player.cellsCleared += clearedThisTick;
   for (const key of ojamaToClear) {
     const y = Math.floor(key / BOARD_WIDTH);
     const x = key % BOARD_WIDTH;
