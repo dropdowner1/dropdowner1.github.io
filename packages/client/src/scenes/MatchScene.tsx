@@ -1,5 +1,5 @@
 import type { MatchState } from '@chaindrop/shared';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { InputSystem } from '../input/InputSystem';
 import { FieldRenderer } from '../renderer/FieldRenderer';
 import { NextRenderer } from '../renderer/NextRenderer';
@@ -28,15 +28,52 @@ interface Props {
   onQuit: () => void;
 }
 
+interface SoloHud {
+  score: number;
+  chain: number;
+  maxChain: number;
+  cleared: number;
+}
+
 export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [hud, setHud] = useState({ score: 0, chain: 0, maxChain: 0 });
+  const [hud, setHud] = useState<SoloHud>({ score: 0, chain: 0, maxChain: 0, cleared: 0 });
+  const [paused, setPaused] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
-  // Refs used for cleanup + for the Escape handler so it sees latest handlers.
   const onEndRef = useRef(onEnd);
   const onQuitRef = useRef(onQuit);
   onEndRef.current = onEnd;
   onQuitRef.current = onQuit;
+
+  /** Scheduler lives in a ref so the pause/resume buttons can reach it
+   *  without re-running the heavy init effect. */
+  const schedulerRef = useRef<FrameScheduler | null>(null);
+  const pausedRef = useRef(false);
+
+  const resume = useCallback(() => {
+    setPaused(false);
+    setShowSettings(false);
+    pausedRef.current = false;
+    schedulerRef.current?.start();
+  }, []);
+
+  const pause = useCallback(() => {
+    setPaused(true);
+    pausedRef.current = true;
+    schedulerRef.current?.stop();
+  }, []);
+
+  const togglePause = useCallback(() => {
+    if (pausedRef.current) resume();
+    else pause();
+  }, [pause, resume]);
+
+  const handleQuit = useCallback(() => {
+    pausedRef.current = false;
+    schedulerRef.current?.stop();
+    onQuitRef.current();
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -59,12 +96,10 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
     const onEscape = (e: KeyboardEvent) => {
       if (e.code !== 'Escape') return;
       e.preventDefault();
-      onQuitRef.current();
+      togglePause();
     };
     window.addEventListener('keydown', onEscape);
 
-    // Pixi + sprite sheet load in parallel — both must be ready before
-    // the renderer can mount.
     Promise.all([pixi.init(), PuyoSheet.load(ASSET_BASE)])
       .then(([_, loadedSheet]) => {
         if (cancelled) {
@@ -95,7 +130,12 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
           onFrameAdvanced: (match: MatchState) => {
             const p = match.players[0];
             if (!p) return;
-            setHud({ score: p.score, chain: p.chainCount, maxChain: p.maxChain });
+            setHud({
+              score: p.score,
+              chain: p.chainCount,
+              maxChain: p.maxChain,
+              cleared: p.cellsCleared,
+            });
           },
           onRender: (match) => {
             const p = match.players[0];
@@ -104,10 +144,10 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
             nextRenderer?.update(match);
           },
         });
+        schedulerRef.current = scheduler;
         scheduler.start();
       })
       .catch((err) => {
-        // Initialization failed (e.g. no WebGL, asset not found).
         console.error('[MatchScene] init failed:', err);
         onQuitRef.current();
       });
@@ -115,6 +155,7 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
     return () => {
       cancelled = true;
       window.removeEventListener('keydown', onEscape);
+      schedulerRef.current = null;
       scheduler?.dispose();
       renderer?.destroy();
       nextRenderer?.destroy();
@@ -123,7 +164,7 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
       input.dispose();
       source.dispose();
     };
-  }, [seed, colorMode]);
+  }, [seed, colorMode, togglePause]);
 
   return (
     <div className="scene match-scene">
@@ -139,8 +180,48 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
             {hud.chain} <span className="panel-sub">/ {hud.maxChain}</span>
           </div>
         </div>
+        <div className="overlay-panel cleared-panel">
+          <div className="panel-label">CLEARED</div>
+          <div className="panel-value">{hud.cleared.toLocaleString()}</div>
+        </div>
       </div>
       <div className="keyhint">←/→: 移動 Z/X: 回転 ↓: ソフトドロップ Esc: ポーズ</div>
+
+      {paused && (
+        // biome-ignore lint/a11y/useSemanticElements: pause is a transient game overlay, not a focus-trapped modal dialog — using <dialog> would also hijack Esc and break our scheduler-pause control
+        <div className="pause-overlay" role="dialog" aria-modal>
+          {showSettings ? (
+            <div className="pause-menu">
+              <h2 className="pause-title">設定</h2>
+              <p className="pause-settings-stub">設定項目は今後追加予定です。</p>
+              <button
+                type="button"
+                className="pause-btn pause-btn-secondary"
+                onClick={() => setShowSettings(false)}
+              >
+                戻る
+              </button>
+            </div>
+          ) : (
+            <div className="pause-menu">
+              <h2 className="pause-title">ポーズ</h2>
+              <button type="button" className="pause-btn pause-btn-primary" onClick={resume}>
+                続ける
+              </button>
+              <button
+                type="button"
+                className="pause-btn pause-btn-secondary"
+                onClick={() => setShowSettings(true)}
+              >
+                設定
+              </button>
+              <button type="button" className="pause-btn pause-btn-secondary" onClick={handleQuit}>
+                メニューに戻る
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
