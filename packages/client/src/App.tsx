@@ -1,20 +1,39 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { LobbyScene } from './scenes/LobbyScene';
 import { MatchLobbyScene, type MatchStartPayload } from './scenes/MatchLobbyScene';
 import { type MatchResult, MatchScene } from './scenes/MatchScene';
 import { type NetworkedMatchResult, NetworkedMatchScene } from './scenes/NetworkedMatchScene';
+import { RankingsScene } from './scenes/RankingsScene';
 import { ResultScene } from './scenes/ResultScene';
 import { TitleScene } from './scenes/TitleScene';
+import { loadAccount } from './state/account';
+import { applyColorModeDom } from './state/colorMode';
+import { appendOnlineHistory, loadRecords } from './state/records';
+import { loadSettings } from './state/settings';
 
-type SceneKind = 'title' | 'match' | 'result' | 'lobby' | 'matchLobby' | 'networkedMatch';
+type SceneKind =
+  | 'title'
+  | 'match'
+  | 'result'
+  | 'lobby'
+  | 'matchLobby'
+  | 'networkedMatch'
+  | 'rankings';
 
 export function App() {
   const [scene, setScene] = useState<SceneKind>('title');
   const [matchKey, setMatchKey] = useState(0);
   const [result, setResult] = useState<MatchResult | null>(null);
-  const [nickname, setNickname] = useState('');
   const [matchRoomId, setMatchRoomId] = useState('');
+  const [matchNickname, setMatchNickname] = useState('');
   const [networkedStart, setNetworkedStart] = useState<MatchStartPayload | null>(null);
+
+  // Apply persisted color mode on first paint so the user's previous
+  // pick survives a reload. Settings volumes are applied lazily inside
+  // the audio bus the first time it's unlocked.
+  useEffect(() => {
+    applyColorModeDom(loadSettings().colorMode);
+  }, []);
 
   const startMatch = useCallback(() => {
     setMatchKey((k) => k + 1);
@@ -35,9 +54,13 @@ export function App() {
     setScene('lobby');
   }, []);
 
+  const goRankings = useCallback(() => {
+    setScene('rankings');
+  }, []);
+
   const handleJoinMatch = useCallback((roomId: string, nick: string) => {
     setMatchRoomId(roomId);
-    setNickname(nick);
+    setMatchNickname(nick);
     setScene('matchLobby');
   }, []);
 
@@ -47,8 +70,20 @@ export function App() {
   }, []);
 
   const handleNetworkedMatchEnd = useCallback((r: NetworkedMatchResult) => {
-    // For M3b we route both end-of-match and quit back to the title;
-    // a dedicated networked-result screen lands in M3c.
+    // Persist this match's outcome to the local online history. The
+    // opponent's nickname is whatever the room state surfaced; in 1v1
+    // there's exactly one of them.
+    const opponent = Object.entries(
+      r as unknown as { nicknamesByPlayerId?: Record<string, string> },
+    )
+      ? '対戦相手'
+      : '対戦相手';
+    appendOnlineHistory(loadRecords(), {
+      at: new Date().toISOString(),
+      opponentNickname: opponent,
+      outcome: r.winnerId === null ? 'draw' : r.winnerId === r.myPlayerId ? 'win' : 'loss',
+      selfScore: r.score,
+    });
     setResult({ score: r.score, maxChain: r.maxChain, frame: r.frame });
     setNetworkedStart(null);
     setScene('result');
@@ -61,31 +96,29 @@ export function App() {
 
   switch (scene) {
     case 'title':
-      return <TitleScene onStart={startMatch} onOnline={goOnline} />;
+      return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
     case 'match':
       return <MatchScene key={matchKey} onEnd={handleEnd} onQuit={handleQuit} />;
     case 'result':
-      if (!result) return <TitleScene onStart={startMatch} onOnline={goOnline} />;
+      if (!result)
+        return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
       return <ResultScene result={result} onRestart={startMatch} onTitle={handleQuit} />;
     case 'lobby':
-      return (
-        <LobbyScene
-          initialNickname={nickname}
-          onJoinMatch={handleJoinMatch}
-          onBack={() => setScene('title')}
-        />
-      );
+      return <LobbyScene onJoinMatch={handleJoinMatch} onBack={() => setScene('title')} />;
     case 'matchLobby':
       return (
         <MatchLobbyScene
           roomId={matchRoomId}
-          nickname={nickname}
+          nickname={matchNickname || loadAccount().playerName}
           onLeave={() => setScene('lobby')}
           onMatchStart={handleNetworkedMatchStart}
         />
       );
+    case 'rankings':
+      return <RankingsScene onBack={() => setScene('title')} />;
     case 'networkedMatch':
-      if (!networkedStart) return <TitleScene onStart={startMatch} onOnline={goOnline} />;
+      if (!networkedStart)
+        return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
       return (
         <NetworkedMatchScene
           room={networkedStart.room}
@@ -94,8 +127,6 @@ export function App() {
           nicknamesByPlayerId={networkedStart.nicknamesByPlayerId}
           seed={networkedStart.seed}
           colorMode={networkedStart.colorMode}
-          // The protocol passes drop pairs as tuples; the simulator
-          // only consumes PuyoColor codes, so cast through here.
           dropQueue={
             networkedStart.dropQueue as unknown as ReadonlyArray<
               readonly [

@@ -890,3 +890,592 @@ button {
   font-family: var(--pixel-font-jp);
   border-radius: 0;
 }
+
+/* ----------------------- Color modes (CSS side) ---------------------- */
+
+/*
+ * `data-color-mode` on <html> is set by `state/colorMode.ts` whenever
+ * the user changes their setting. The standard mode is the existing
+ * palette; mono and high-contrast override the accent variables so the
+ * HUD/menu chrome follows the same shift the Pixi stage applies via
+ * ColorMatrixFilter.
+ */
+html[data-color-mode="mono"] {
+  --snes-accent: #d0d0d0;
+  --snes-accent-soft: #ffffff;
+  --snes-magenta: #aaaaaa;
+  --snes-cyan: #c8c8c8;
+}
+
+html[data-color-mode="high-contrast"] {
+  --snes-bg: #000010;
+  --snes-bg-deep: #000008;
+  --snes-panel: #00003a;
+  --snes-panel-edge: #00d4ff;
+  --snes-accent: #ffe600;
+  --snes-accent-soft: #ffffff;
+  --snes-magenta: #ff2dbc;
+  --snes-cyan: #00f5ff;
+  --snes-text: #ffffff;
+}
+
+/* =====================================================================
+   Phase A — SNES-style shell additions
+   ===================================================================== */
+
+/*
+ * `.snes-window` — generic "blue window" SFC dialog frame. Compile's
+ * Puyo Puyo on SFC used a navy panel with a thin lighter inner stroke
+ * and a chunky dark drop. We reproduce that purely with box-shadow so
+ * it nests inside any panel without sprite assets.
+ */
+.snes-window {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, transparent 30%),
+    var(--snes-panel);
+  border-radius: 0;
+  padding: 24px 28px;
+  box-shadow:
+    inset 0 0 0 2px var(--snes-bg-deep),
+    inset 0 0 0 4px var(--snes-panel-edge),
+    inset 0 0 0 6px var(--snes-bg-deep),
+    8px 8px 0 0 var(--snes-panel-shadow);
+  color: var(--snes-text);
+}
+
+/* ------------- Title scene ------------- */
+
+.title-account-strip {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+}
+
+.title-account-btn {
+  background: var(--snes-bg-deep);
+  color: var(--snes-cyan);
+  font-family: var(--pixel-font-en);
+  letter-spacing: 0.06em;
+  font-size: 0.85rem;
+  padding: 8px 16px;
+  border: none;
+  box-shadow:
+    inset 0 0 0 2px var(--snes-panel-edge),
+    2px 2px 0 0 var(--snes-panel-shadow);
+}
+
+.title-account-btn:hover,
+.title-account-btn:focus-visible {
+  box-shadow:
+    inset 0 0 0 2px var(--snes-accent),
+    1px 1px 0 0 var(--snes-panel-shadow);
+  outline: none;
+}
+
+.title-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 320px;
+}
+
+.title-menu-btn {
+  background: var(--snes-bg-deep);
+  color: var(--snes-text);
+  border: none;
+  font-family: var(--pixel-font-jp);
+  font-size: 1.05rem;
+  letter-spacing: 0.08em;
+  padding: 12px 22px;
+  box-shadow:
+    inset 0 0 0 2px var(--snes-panel-edge),
+    2px 2px 0 0 var(--snes-panel-shadow);
+  transition: transform 80ms ease;
+}
+
+.title-menu-btn:hover:not(:disabled),
+.title-menu-btn:focus-visible:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow:
+    inset 0 0 0 2px var(--snes-accent),
+    1px 1px 0 0 var(--snes-panel-shadow);
+  outline: none;
+}
+
+.title-menu-btn.primary {
+  background: var(--snes-accent);
+  color: #0a0a14;
+  box-shadow:
+    inset 0 0 0 2px #c79f00,
+    3px 3px 0 0 var(--snes-panel-shadow);
+}
+
+.title-menu-btn.primary:hover:not(:disabled) {
+  background: var(--snes-accent-soft);
+  box-shadow:
+    inset 0 0 0 2px #c79f00,
+    2px 2px 0 0 var(--snes-panel-shadow);
+}
+
+.title-menu-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Marquee */
+.title-marquee {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 36px;
+  overflow: hidden;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.7) 100%);
+  border-top: 2px solid var(--snes-panel-edge);
+  z-index: 4;
+}
+
+.title-marquee-track {
+  display: inline-flex;
+  white-space: nowrap;
+  font-family: var(--pixel-font-jp);
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  color: var(--snes-accent);
+  padding-top: 8px;
+  /* Three copies of the segment string render side by side; the
+     animation slides one segment's worth so the loop is seamless. */
+  animation: title-marquee-scroll 38s linear infinite;
+  text-shadow: 2px 2px 0 var(--snes-bg-deep);
+}
+
+@keyframes title-marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-33.333%);
+  }
+}
+
+/* ------------- Settings dialog ------------- */
+
+.settings-dialog {
+  min-width: 480px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.settings-title {
+  margin: 0 0 6px;
+  font-family: var(--pixel-font-en);
+  font-size: 1.3rem;
+  letter-spacing: 0.08em;
+  color: var(--snes-accent);
+  text-shadow: 2px 2px 0 var(--snes-bg-deep);
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 120px 1fr 36px;
+  gap: 12px;
+  align-items: center;
+}
+
+.settings-label {
+  font-family: var(--pixel-font-jp);
+  color: var(--snes-text);
+}
+
+.settings-stepper {
+  display: grid;
+  grid-template-columns: repeat(11, 1fr);
+  gap: 4px;
+}
+
+.step-cell {
+  height: 18px;
+  background: var(--snes-bg-deep);
+  border: none;
+  box-shadow: inset 0 0 0 1px var(--snes-panel-edge);
+  font-size: 9px;
+  color: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.step-cell.on {
+  background: var(--snes-accent);
+  box-shadow: inset 0 0 0 1px var(--snes-accent-soft);
+}
+
+.step-cell:hover {
+  box-shadow: inset 0 0 0 1px var(--snes-accent-soft);
+}
+
+.settings-value {
+  font-family: var(--pixel-font-en);
+  font-size: 0.9rem;
+  color: var(--snes-cyan);
+  text-align: right;
+}
+
+.settings-color-modes {
+  display: flex;
+  gap: 8px;
+  grid-column: span 2;
+}
+
+.color-mode-btn {
+  background: var(--snes-bg-deep);
+  color: var(--snes-text);
+  border: none;
+  padding: 8px 14px;
+  font-family: var(--pixel-font-jp);
+  font-size: 0.9rem;
+  box-shadow:
+    inset 0 0 0 2px var(--snes-panel-edge),
+    2px 2px 0 0 var(--snes-panel-shadow);
+}
+
+.color-mode-btn.on {
+  background: var(--snes-accent);
+  color: #0a0a14;
+  box-shadow:
+    inset 0 0 0 2px #c79f00,
+    1px 1px 0 0 var(--snes-panel-shadow);
+}
+
+.settings-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--snes-text-dim);
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ------------- Account dialog ------------- */
+
+.account-dialog {
+  min-width: 480px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.account-title {
+  margin: 0;
+  font-family: var(--pixel-font-en);
+  font-size: 1.3rem;
+  letter-spacing: 0.08em;
+  color: var(--snes-accent);
+  text-shadow: 2px 2px 0 var(--snes-bg-deep);
+}
+
+.account-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.account-tab {
+  flex: 1;
+  background: var(--snes-bg-deep);
+  color: var(--snes-text-dim);
+  border: none;
+  padding: 8px 14px;
+  font-family: var(--pixel-font-jp);
+  box-shadow:
+    inset 0 0 0 2px var(--snes-panel-edge),
+    2px 2px 0 0 var(--snes-panel-shadow);
+}
+
+.account-tab.on {
+  background: var(--snes-accent);
+  color: #0a0a14;
+  box-shadow:
+    inset 0 0 0 2px #c79f00,
+    1px 1px 0 0 var(--snes-panel-shadow);
+}
+
+.account-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.account-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.account-field-label {
+  font-family: var(--pixel-font-jp);
+  font-size: 0.85rem;
+  color: var(--snes-cyan);
+}
+
+.account-field input {
+  background: var(--snes-bg-deep);
+  color: var(--snes-text);
+  border: none;
+  border-radius: 0;
+  padding: 10px 12px;
+  font-family: var(--pixel-font-jp);
+  font-size: 1rem;
+  box-shadow: inset 0 0 0 2px var(--snes-panel-edge);
+}
+
+.account-field input:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--snes-accent);
+}
+
+.account-field-hint {
+  font-size: 0.75rem;
+  color: var(--snes-text-dim);
+}
+
+.account-field-error {
+  font-size: 0.8rem;
+  color: #ff7a8a;
+}
+
+.account-stub {
+  margin: 0;
+  padding: 10px 12px;
+  background: rgba(255, 214, 10, 0.08);
+  border: 1px solid rgba(255, 214, 10, 0.3);
+  color: var(--snes-accent-soft);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.account-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+/* ------------- Rankings scene ------------- */
+
+.rankings-scene {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 20px;
+  width: min(900px, 100% - 48px);
+  margin: 0 auto;
+  padding: 36px 0 60px;
+  place-items: stretch;
+}
+
+.rankings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rankings-header h2 {
+  margin: 0;
+  font-family: var(--pixel-font-en);
+  font-size: 1.6rem;
+  color: var(--snes-accent);
+  letter-spacing: 0.08em;
+  text-shadow: 2px 2px 0 var(--snes-bg-deep);
+}
+
+.rankings-section-title {
+  margin: 0 0 14px;
+  font-family: var(--pixel-font-en);
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  color: var(--snes-cyan);
+}
+
+.rankings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin: 0;
+}
+
+.rankings-grid div {
+  background: var(--snes-bg-deep);
+  padding: 14px 18px;
+  box-shadow: inset 0 0 0 2px var(--snes-panel-edge);
+  text-align: right;
+}
+
+.rankings-grid dt {
+  margin: 0;
+  font-family: var(--pixel-font-jp);
+  font-size: 0.85rem;
+  color: var(--snes-text-dim);
+}
+
+.rankings-grid dd {
+  margin: 4px 0 0;
+  font-family: var(--pixel-font-en);
+  font-size: 1.5rem;
+  color: var(--snes-accent);
+}
+
+.rankings-stamp {
+  margin: 14px 0 0;
+  font-size: 0.85rem;
+  color: var(--snes-text-dim);
+}
+
+.rankings-online-summary {
+  margin: 0 0 14px;
+  font-family: var(--pixel-font-en);
+  font-size: 1.1rem;
+  color: var(--snes-accent);
+}
+
+.rankings-online-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.rankings-online-list li {
+  display: grid;
+  grid-template-columns: 60px 1fr 100px 140px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--snes-bg-deep);
+  box-shadow: inset 0 0 0 2px var(--snes-panel-edge);
+}
+
+.rankings-online-list li.outcome-win {
+  box-shadow: inset 0 0 0 2px var(--snes-accent);
+}
+
+.rankings-online-list li.outcome-loss {
+  box-shadow: inset 0 0 0 2px var(--snes-magenta);
+}
+
+.rankings-outcome {
+  font-family: var(--pixel-font-en);
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+}
+
+.outcome-win .rankings-outcome {
+  color: var(--snes-accent);
+}
+.outcome-loss .rankings-outcome {
+  color: var(--snes-magenta);
+}
+.outcome-draw .rankings-outcome {
+  color: var(--snes-cyan);
+}
+
+.rankings-opp {
+  font-family: var(--pixel-font-jp);
+}
+
+.rankings-score {
+  font-family: var(--pixel-font-en);
+  text-align: right;
+  color: var(--snes-text);
+}
+
+.rankings-at {
+  font-family: var(--pixel-font-en);
+  font-size: 0.75rem;
+  text-align: right;
+  color: var(--snes-text-dim);
+}
+
+.rankings-empty {
+  margin: 0;
+  color: var(--snes-text-dim);
+  font-style: italic;
+}
+
+.rankings-footnote {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--snes-text-dim);
+}
+
+/* ------------- Lobby additions ------------- */
+
+.lobby-identity {
+  margin: 0;
+  font-family: var(--pixel-font-jp);
+  color: var(--snes-text-dim);
+}
+
+.lobby-identity strong {
+  color: var(--snes-accent);
+  margin: 0 4px;
+}
+
+.lobby-identity-guest {
+  margin-left: 8px;
+  color: var(--snes-cyan);
+}
+
+.lobby-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.lobby-section-title {
+  margin: 0 0 12px;
+  font-family: var(--pixel-font-en);
+  font-size: 1rem;
+  letter-spacing: 0.06em;
+  color: var(--snes-cyan);
+}
+
+.lobby-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.lobby-rooms-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.lobby-info {
+  color: var(--snes-text-dim);
+  font-style: italic;
+  text-align: center;
+  padding: 12px 0;
+}
+
+.lobby-field-inline {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.lobby-field-inline input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--snes-accent);
+}
