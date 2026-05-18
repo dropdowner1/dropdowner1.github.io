@@ -1,35 +1,51 @@
 /**
- * LobbyScene — pick a nickname, browse the room list, create or join
- * a match room. M3a stops here once the player is in a match room:
- * the next transition is `MatchLobbyScene` (waiting for opponents +
- * READY toggle).
+ * LobbyScene — オンラインルーム作成 / オンライン参加 のハブ.
+ *
+ * Phase A changes (per playtest):
+ *   - Nickname input field removed; we read the player name straight
+ *     from the persisted account record (guest names auto-generated
+ *     by `state/account.ts`).
+ *   - The lone 接続 button is split into オンラインルーム作成 /
+ *     オンライン参加 — both auto-connect to the lobby when clicked
+ *     and reveal the corresponding panel.
+ *   - Each room in the list has a 参加 button next to it; password-
+ *     less rooms join directly on click. Password rooms will get a
+ *     prompt in Phase B; for now we surface a banner so the player
+ *     knows the action isn't ignored.
  */
 
 import type { Capacity, ColorMode, RoomSummary } from '@chaindrop/shared/protocol';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type LobbyRoomHandle, colyseus, onLobbyMessage } from '../network/colyseusClient';
+import { loadAccount } from '../state/account';
 
 interface Props {
-  initialNickname?: string;
   /** Called once we successfully obtained a match room id. */
   onJoinMatch: (roomId: string, nickname: string) => void;
   onBack: () => void;
 }
 
-export function LobbyScene({ initialNickname, onJoinMatch, onBack }: Props) {
-  const [nickname, setNickname] = useState(initialNickname ?? '');
-  const [joined, setJoined] = useState(false);
+type Pane = 'menu' | 'create' | 'join';
+
+export function LobbyScene({ onJoinMatch, onBack }: Props) {
+  const account = useMemo(() => loadAccount(), []);
+  const nickname = account.playerName;
+
+  const [pane, setPane] = useState<Pane>('menu');
+  const [connected, setConnected] = useState(false);
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [capacity, setCapacity] = useState<Capacity>(2);
   const [colorMode, setColorMode] = useState<ColorMode>(4);
-  const [busy, setBusy] = useState(false);
+  const [isPrivate, setIsPrivate] = useState(false);
   const roomRef = useRef<LobbyRoomHandle | null>(null);
+  const handedOff = useRef(false);
 
   const cleanup = useCallback(async () => {
     const room = roomRef.current;
     roomRef.current = null;
-    if (room) {
+    if (room && !handedOff.current) {
       try {
         await room.leave();
       } catch {
@@ -44,11 +60,8 @@ export function LobbyScene({ initialNickname, onJoinMatch, onBack }: Props) {
     };
   }, [cleanup]);
 
-  const connect = useCallback(async () => {
-    if (!nickname.trim()) {
-      setError('ニックネームを入力してください');
-      return;
-    }
+  const connect = useCallback(async (): Promise<LobbyRoomHandle | null> => {
+    if (roomRef.current) return roomRef.current;
     setError(null);
     setBusy(true);
     try {
@@ -57,46 +70,49 @@ export function LobbyScene({ initialNickname, onJoinMatch, onBack }: Props) {
       onLobbyMessage(room, (msg) => {
         switch (msg.t) {
           case 'LOBBY_JOINED':
-            setJoined(true);
+            setConnected(true);
             break;
           case 'LOBBY_STATE':
             setRooms(msg.rooms);
             break;
           case 'ROOM_CREATED':
-            // Once the room is created the lobby state update will
-            // surface it; we immediately try to join it so the user
-            // jumps straight into the waiting room.
-            void joinMatch(msg.roomId);
+            // Immediately attempt to join the room we just made so
+            // the host lands in the waiting room.
+            handedOff.current = false; // until we actually transition
+            void joinMatchId(msg.roomId);
             break;
           case 'JOIN_ROOM_OK':
+            handedOff.current = true;
             onJoinMatch(msg.matchRoomUrl, nickname);
             break;
           case 'JOIN_ROOM_REJECTED':
-            setError(`join rejected: ${msg.reason}`);
+            setError(reasonLabel(msg.reason));
             break;
           case 'ERROR':
             setError(`${msg.code}: ${msg.message}`);
             break;
         }
       });
-      // Re-render the room list as the schema map updates.
-      const lobbyState = room.state as { rooms?: Map<string, unknown> };
-      if (
-        lobbyState.rooms &&
-        typeof (lobbyState.rooms as Map<string, unknown>).forEach === 'function'
-      ) {
-        // The schema map syncs in the background; the LOBBY_STATE
-        // snapshot above primes the initial render and subsequent
-        // changes arrive via the same message.
-      }
       room.send('JOIN_LOBBY', { nickname });
+      return room;
     } catch (err) {
       console.error(err);
       setError('サーバに接続できませんでした');
+      return null;
     } finally {
       setBusy(false);
     }
   }, [nickname, onJoinMatch]);
+
+  const openCreate = useCallback(async () => {
+    setPane('create');
+    await connect();
+  }, [connect]);
+
+  const openJoin = useCallback(async () => {
+    setPane('join');
+    await connect();
+  }, [connect]);
 
   const createRoom = useCallback(() => {
     const room = roomRef.current;
@@ -105,15 +121,28 @@ export function LobbyScene({ initialNickname, onJoinMatch, onBack }: Props) {
     room.send('CREATE_ROOM', {
       capacity,
       colorMode,
-      isPrivate: false,
+      isPrivate,
     });
-  }, [capacity, colorMode]);
+  }, [capacity, colorMode, isPrivate]);
 
-  const joinMatch = useCallback((roomId: string) => {
+  const joinMatchId = useCallback((roomId: string) => {
     const room = roomRef.current;
     if (!room) return;
     room.send('JOIN_ROOM', { roomId });
   }, []);
+
+  const handleEnter = useCallback(
+    (r: RoomSummary) => {
+      if (r.isPrivate) {
+        // Password-room join lands in Phase B; for now surface the
+        // limitation rather than silently failing.
+        setError('パスワード付きルームの参加は近日対応予定です');
+        return;
+      }
+      joinMatchId(r.roomId);
+    },
+    [joinMatchId],
+  );
 
   return (
     <div className="scene lobby-scene">
@@ -131,78 +160,130 @@ export function LobbyScene({ initialNickname, onJoinMatch, onBack }: Props) {
         </button>
       </div>
 
-      {!joined ? (
-        <div className="lobby-connect">
-          <label className="lobby-field">
-            <span>ニックネーム</span>
-            <input
-              type="text"
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              maxLength={20}
-            />
-          </label>
-          <button type="button" disabled={busy} onClick={() => void connect()}>
-            接続
+      <p className="lobby-identity">
+        <span>プレイヤー名:</span> <strong>{nickname}</strong>
+        {account.guest && <span className="lobby-identity-guest">（ゲスト）</span>}
+      </p>
+
+      {pane === 'menu' && (
+        <div className="lobby-menu snes-window">
+          <button
+            type="button"
+            className="title-menu-btn primary"
+            disabled={busy}
+            onClick={() => void openCreate()}
+          >
+            オンラインルーム作成
+          </button>
+          <button
+            type="button"
+            className="title-menu-btn"
+            disabled={busy}
+            onClick={() => void openJoin()}
+          >
+            オンライン参加
           </button>
         </div>
-      ) : (
-        <>
-          <div className="lobby-create">
-            <label className="lobby-field">
-              <span>人数</span>
-              <select
-                value={capacity}
-                onChange={(e) => setCapacity(Number(e.target.value) as Capacity)}
-              >
-                <option value={2}>2 人</option>
-                <option value={3}>3 人</option>
-                <option value={4}>4 人</option>
-              </select>
-            </label>
-            <label className="lobby-field">
-              <span>色数</span>
-              <select
-                value={colorMode}
-                onChange={(e) => setColorMode(Number(e.target.value) as ColorMode)}
-              >
-                <option value={4}>4 色</option>
-                <option value={5}>5 色</option>
-              </select>
-            </label>
-            <button type="button" disabled={busy} onClick={createRoom}>
-              ルーム作成
+      )}
+
+      {pane === 'create' && (
+        <div className="lobby-create snes-window">
+          <h3 className="lobby-section-title">ルーム作成</h3>
+          <label className="lobby-field">
+            <span>人数</span>
+            <select
+              value={capacity}
+              onChange={(e) => setCapacity(Number(e.target.value) as Capacity)}
+            >
+              <option value={2}>2 人</option>
+              <option value={3}>3 人</option>
+              <option value={4}>4 人</option>
+            </select>
+          </label>
+          <label className="lobby-field">
+            <span>色数</span>
+            <select
+              value={colorMode}
+              onChange={(e) => setColorMode(Number(e.target.value) as ColorMode)}
+            >
+              <option value={4}>4 色</option>
+              <option value={5}>5 色</option>
+            </select>
+          </label>
+          <label className="lobby-field lobby-field-inline">
+            <input
+              type="checkbox"
+              checked={isPrivate}
+              onChange={(e) => setIsPrivate(e.target.checked)}
+            />
+            <span>パスワード付きルーム（近日対応）</span>
+          </label>
+          <div className="lobby-actions">
+            <button type="button" className="title-menu-btn" onClick={() => setPane('menu')}>
+              戻る
+            </button>
+            <button
+              type="button"
+              className="title-menu-btn primary"
+              disabled={busy || !connected}
+              onClick={createRoom}
+            >
+              作成
             </button>
           </div>
+          {!connected && <p className="lobby-info">サーバに接続中…</p>}
+        </div>
+      )}
 
-          <div className="lobby-rooms">
-            <h3>ルーム一覧</h3>
-            {rooms.length === 0 ? (
-              <p className="lobby-empty">ルームはまだありません</p>
-            ) : (
-              <ul>
-                {rooms.map((r) => (
-                  <li key={r.roomId}>
-                    <span className="lobby-room-name">{r.name || r.roomId}</span>
-                    <span className="lobby-room-meta">
-                      {r.players}/{r.capacity} · {r.colorMode}色 · {r.status}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={busy || r.status !== 'lobby' || r.players >= r.capacity}
-                      onClick={() => joinMatch(r.roomId)}
-                    >
-                      入る
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+      {pane === 'join' && (
+        <div className="lobby-rooms snes-window">
+          <h3 className="lobby-section-title">ルーム一覧</h3>
+          <div className="lobby-rooms-toolbar">
+            <button type="button" className="title-menu-btn" onClick={() => setPane('menu')}>
+              戻る
+            </button>
           </div>
-        </>
+          {!connected ? (
+            <p className="lobby-info">サーバに接続中…</p>
+          ) : rooms.length === 0 ? (
+            <p className="lobby-empty">ルームはまだありません</p>
+          ) : (
+            <ul>
+              {rooms.map((r) => (
+                <li key={r.roomId}>
+                  <span className="lobby-room-name">{r.name || r.roomId}</span>
+                  <span className="lobby-room-meta">
+                    {r.players}/{r.capacity} · {r.colorMode}色 · {r.isPrivate ? '🔒' : 'OPEN'} ·{' '}
+                    {r.status}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={busy || r.status !== 'lobby' || r.players >= r.capacity}
+                    onClick={() => handleEnter(r)}
+                  >
+                    参加
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {error && <p className="lobby-error">{error}</p>}
     </div>
   );
+}
+
+function reasonLabel(reason: 'FULL' | 'NOT_FOUND' | 'MATCH_IN_PROGRESS' | 'BAD_CODE'): string {
+  switch (reason) {
+    case 'FULL':
+      return 'ルームは満員です';
+    case 'NOT_FOUND':
+      return 'ルームが見つかりません';
+    case 'MATCH_IN_PROGRESS':
+      return 'このルームはすでに対戦中です';
+    case 'BAD_CODE':
+      return 'パスワードが違います';
+  }
 }

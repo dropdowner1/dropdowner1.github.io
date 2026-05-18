@@ -1,5 +1,7 @@
 import type { MatchState } from '@chaindrop/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { audioBus } from '../audio/AudioBus';
+import { SettingsDialog } from '../components/SettingsDialog';
 import { InputSystem } from '../input/InputSystem';
 import { FieldRenderer } from '../renderer/FieldRenderer';
 import { NextRenderer } from '../renderer/NextRenderer';
@@ -7,12 +9,10 @@ import { PixiApp } from '../renderer/PixiApp';
 import { PuyoSheet } from '../renderer/PuyoTexture';
 import { FrameScheduler } from '../simulator/FrameScheduler';
 import { LocalMatchSource } from '../simulator/LocalMatchSource';
+import { applyColorModeToApp } from '../state/colorMode';
+import { type Records, loadRecords, recordSoloRun } from '../state/records';
+import { loadSettings } from '../state/settings';
 
-/**
- * Vite rewrites its output with a runtime base path. Passing
- * `import.meta.env.BASE_URL` to Pixi's asset loader ensures the sheet
- * resolves correctly on both the dev server and a GitHub Pages subpath.
- */
 const ASSET_BASE = import.meta.env.BASE_URL;
 
 export interface MatchResult {
@@ -46,22 +46,25 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
   onEndRef.current = onEnd;
   onQuitRef.current = onQuit;
 
-  /** Scheduler lives in a ref so the pause/resume buttons can reach it
-   *  without re-running the heavy init effect. */
   const schedulerRef = useRef<FrameScheduler | null>(null);
   const pausedRef = useRef(false);
+  /** Pixi app handle exposed so the SettingsDialog can re-apply the
+   *  color-mode filter live as the user toggles modes. */
+  const pixiRef = useRef<PixiApp | null>(null);
 
   const resume = useCallback(() => {
     setPaused(false);
     setShowSettings(false);
     pausedRef.current = false;
     schedulerRef.current?.start();
+    void audioBus.ensureUnlocked().then(() => audioBus.startBgm());
   }, []);
 
   const pause = useCallback(() => {
     setPaused(true);
     pausedRef.current = true;
     schedulerRef.current?.stop();
+    audioBus.stopBgm();
   }, []);
 
   const togglePause = useCallback(() => {
@@ -72,6 +75,7 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
   const handleQuit = useCallback(() => {
     pausedRef.current = false;
     schedulerRef.current?.stop();
+    audioBus.stopBgm();
     onQuitRef.current();
   }, []);
 
@@ -85,6 +89,7 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
     input.attach(window);
 
     const pixi = new PixiApp({ canvas, autoFit: true });
+    pixiRef.current = pixi;
 
     let renderer: FieldRenderer | null = null;
     let nextRenderer: NextRenderer | null = null;
@@ -92,6 +97,10 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
     let sheet: PuyoSheet | null = null;
     let cancelled = false;
     let matchEnded = false;
+    /** Track previous frame state so we can fire SE on transitions
+     *  (rotation, lock, chain pop) instead of every render. */
+    let prevChain = 0;
+    let prevPhase = '';
 
     const onEscape = (e: KeyboardEvent) => {
       if (e.code !== 'Escape') return;
@@ -113,15 +122,35 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
         pixi.worldContainer.addChild(renderer.container);
         pixi.worldContainer.addChild(nextRenderer.container);
 
+        // Apply the saved color mode to the freshly-mounted stage.
+        applyColorModeToApp(pixi.app, loadSettings().colorMode);
+
+        // Start BGM and the match-start SE the moment we're ready.
+        void audioBus.ensureUnlocked().then(() => {
+          audioBus.playSe('match-start');
+          audioBus.startBgm();
+        });
+
         source.onMatchEnd(() => {
           if (matchEnded) return;
           matchEnded = true;
+          audioBus.playSe('match-end');
+          audioBus.stopBgm();
           const p = source.match.players[0];
-          onEndRef.current({
+          const result: MatchResult = {
             score: p?.score ?? 0,
             maxChain: p?.maxChain ?? 0,
             frame: source.match.frame,
+          };
+          // Persist the solo run to localStorage so the rankings
+          // screen + title marquee reflect it next time around.
+          const prev: Records = loadRecords();
+          recordSoloRun(prev, {
+            score: result.score,
+            maxChain: result.maxChain,
+            totalCleared: p?.cellsCleared ?? 0,
           });
+          onEndRef.current(result);
         });
 
         scheduler = new FrameScheduler({
@@ -130,6 +159,21 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
           onFrameAdvanced: (match: MatchState) => {
             const p = match.players[0];
             if (!p) return;
+            // Chain pop SE: each tick the chainCount goes up while
+            // resolving — play the pop on every increment.
+            if (p.chainCount > prevChain) {
+              audioBus.playSe('chain-pop');
+            }
+            prevChain = p.chainCount;
+            // Lock SE: phase flips into resolving / chigiri the frame
+            // after the piece settles.
+            if (prevPhase === 'falling' && (p.phase === 'resolving' || p.phase === 'chigiri')) {
+              audioBus.playSe('piece-land');
+            }
+            if (prevPhase !== 'falling' && p.phase === 'falling') {
+              audioBus.playSe('piece-spawn');
+            }
+            prevPhase = p.phase;
             setHud({
               score: p.score,
               chain: p.chainCount,
@@ -156,6 +200,8 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
       cancelled = true;
       window.removeEventListener('keydown', onEscape);
       schedulerRef.current = null;
+      pixiRef.current = null;
+      audioBus.stopBgm();
       scheduler?.dispose();
       renderer?.destroy();
       nextRenderer?.destroy();
@@ -188,22 +234,15 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
       <div className="keyhint">←/→: 移動 Z/X: 回転 ↓: ソフトドロップ Esc: ポーズ</div>
 
       {paused && (
-        // biome-ignore lint/a11y/useSemanticElements: pause is a transient game overlay, not a focus-trapped modal dialog — using <dialog> would also hijack Esc and break our scheduler-pause control
+        // biome-ignore lint/a11y/useSemanticElements: transient game overlay
         <div className="pause-overlay" role="dialog" aria-modal>
           {showSettings ? (
-            <div className="pause-menu">
-              <h2 className="pause-title">設定</h2>
-              <p className="pause-settings-stub">設定項目は今後追加予定です。</p>
-              <button
-                type="button"
-                className="pause-btn pause-btn-secondary"
-                onClick={() => setShowSettings(false)}
-              >
-                戻る
-              </button>
-            </div>
+            <SettingsDialog
+              onClose={() => setShowSettings(false)}
+              onColorModeChange={(mode) => applyColorModeToApp(pixiRef.current?.app ?? null, mode)}
+            />
           ) : (
-            <div className="pause-menu">
+            <div className="pause-menu snes-window">
               <h2 className="pause-title">ポーズ</h2>
               <button type="button" className="pause-btn pause-btn-primary" onClick={resume}>
                 続ける
