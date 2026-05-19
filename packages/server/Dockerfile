@@ -1,5 +1,9 @@
 FROM node:22-alpine AS build
 WORKDIR /app
+# `git` is required because @colyseus/* pulls in
+# @colyseus/uwebsockets-transport, which depends on uWebSockets.js
+# via a git URL rather than the npm registry.
+RUN apk add --no-cache git
 RUN corepack enable
 
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
@@ -11,18 +15,17 @@ RUN pnpm install --frozen-lockfile --filter @chaindrop/shared... --filter @chain
 COPY packages/shared ./packages/shared
 COPY packages/server ./packages/server
 
-RUN pnpm -F @chaindrop/shared build \
- && pnpm -F @chaindrop/server build
-
+# We don't ship pre-compiled JS. The runtime image runs tsx against
+# the TypeScript source — this dodges the Node-ESM extension-resolution
+# headache and keeps @chaindrop/shared (a workspace package whose
+# `main` points at `.ts`) resolvable.
 RUN pnpm deploy --filter @chaindrop/server --prod /app/deploy
 
 
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=build /app/deploy/package.json ./package.json
-COPY --from=build /app/deploy/node_modules ./node_modules
-COPY --from=build /app/packages/server/dist ./dist
+COPY --from=build /app/deploy ./
 
 EXPOSE 2567
-CMD ["node", "dist/index.js"]
+CMD ["node", "--import", "tsx", "src/index.ts"]
