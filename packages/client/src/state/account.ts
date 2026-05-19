@@ -1,8 +1,11 @@
 /**
  * Account state — Phase A keeps everything client-local. A "logged in"
- * user is just a player-name + user-id stored in localStorage; password
- * and email entered in the account creation form are NOT persisted
- * here (Phase B's real backend will own those).
+ * user is just a player-name + user-id stored in localStorage; the
+ * password entered in the account creation form is NOT persisted here
+ * (Phase B's real backend owns the hash).
+ *
+ * Accounts are intentionally ID + password only — there is no e-mail
+ * field and no recovery path. Users manage their own credentials.
  *
  * Guests get a stable auto-generated player name so the matchmaking
  * server still has something to display, but their solo / online
@@ -72,7 +75,6 @@ export interface AccountFormInput {
   playerName: string;
   userId: string;
   password: string;
-  email: string;
 }
 
 export type AccountFormErrors = Partial<Record<keyof AccountFormInput, string>>;
@@ -82,7 +84,6 @@ const USER_ID_MAX = 20;
 const USER_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const PASSWORD_MIN = 8;
 const PASSWORD_PATTERN = /^[A-Za-z0-9!@#$%^&*()_\-+=.]+$/;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function validateAccountForm(input: AccountFormInput): AccountFormErrors {
   const errors: AccountFormErrors = {};
@@ -100,9 +101,6 @@ export function validateAccountForm(input: AccountFormInput): AccountFormErrors 
     errors.password = 'パスワードは英数字記号のみ使えます';
   } else if (input.password.length < PASSWORD_MIN) {
     errors.password = `${PASSWORD_MIN}文字以上で入力してください`;
-  }
-  if (!EMAIL_PATTERN.test(input.email)) {
-    errors.email = 'メールアドレスの形式が正しくありません';
   }
   return errors;
 }

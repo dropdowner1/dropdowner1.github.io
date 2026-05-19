@@ -49,7 +49,7 @@ function sendAuthError(res: Response, code: AuthError, detail?: string): void {
   const status =
     code === 'INVALID_BODY'
       ? 400
-      : code === 'USER_ID_TAKEN' || code === 'EMAIL_TAKEN'
+      : code === 'USER_ID_TAKEN'
         ? 409
         : code === 'INVALID_CREDENTIALS'
           ? 401
@@ -61,8 +61,6 @@ function messageFor(code: AuthError): string {
   switch (code) {
     case 'USER_ID_TAKEN':
       return 'このユーザーIDは既に使われています';
-    case 'EMAIL_TAKEN':
-      return 'このメールアドレスは既に使われています';
     case 'INVALID_CREDENTIALS':
       return 'ユーザーIDまたはパスワードが違います';
     case 'INVALID_BODY':

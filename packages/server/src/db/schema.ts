@@ -14,14 +14,16 @@ CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id       TEXT    UNIQUE NOT NULL,
   player_name   TEXT    NOT NULL,
-  email         TEXT    UNIQUE NOT NULL,
+  -- email is intentionally optional / not surfaced through the API.
+  -- The column is kept so adding an e-mail-based recovery flow later
+  -- doesn't require a migration. NULL is fine for every account today.
+  email         TEXT,
   password_hash TEXT    NOT NULL,
   created_at    TEXT    NOT NULL,
   updated_at    TEXT    NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_user_id ON users(user_id);
-CREATE INDEX IF NOT EXISTS idx_users_email   ON users(email);
 
 CREATE TABLE IF NOT EXISTS solo_runs (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -36,15 +36,16 @@ const password = z
   .max(PASSWORD_MAX)
   .regex(/^[A-Za-z0-9!@#$%^&*()_\-+=.]+$/, 'パスワードに使えない文字が含まれています');
 
-const email = z.string().email('メールアドレスの形式が正しくありません');
-
 // ----------------------------- Sign-up --------------------------------
+//
+// Intentionally ID + password only — no e-mail, no recovery path.
+// Users manage their own credentials; lose the password, lose the
+// account.
 
 export const signupRequest = z.object({
   playerName,
   userId,
   password,
-  email,
 });
 export type SignupRequest = z.infer<typeof signupRequest>;
 

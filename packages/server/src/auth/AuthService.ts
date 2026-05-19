@@ -30,7 +30,7 @@ export interface AuthSession {
   maxAge: number;
 }
 
-export type AuthError = 'USER_ID_TAKEN' | 'EMAIL_TAKEN' | 'INVALID_BODY' | 'INVALID_CREDENTIALS';
+export type AuthError = 'USER_ID_TAKEN' | 'INVALID_BODY' | 'INVALID_CREDENTIALS';
 
 export interface AuthFailure {
   ok: false;
@@ -62,17 +62,14 @@ export class AuthService {
     if (this.findByUserId(input.userId)) {
       return { ok: false, code: 'USER_ID_TAKEN' };
     }
-    if (this.findByEmail(input.email)) {
-      return { ok: false, code: 'EMAIL_TAKEN' };
-    }
     const hash = hashSync(input.password, BCRYPT_COST);
     const now = new Date().toISOString();
     const result = this.db
       .prepare(
-        `INSERT INTO users (user_id, player_name, email, password_hash, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO users (user_id, player_name, password_hash, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(input.userId, input.playerName.trim(), input.email, hash, now, now);
+      .run(input.userId, input.playerName.trim(), hash, now, now);
     const user: PublicUser = { userId: input.userId, playerName: input.playerName.trim() };
     return { ok: true, session: this.mintSession(Number(result.lastInsertRowid), user) };
   }
@@ -132,10 +129,6 @@ export class AuthService {
       | undefined;
   }
 
-  private findByEmail(email: string): UserRow | undefined {
-    return this.db.prepare('SELECT * FROM users WHERE email = ?').get(email) as UserRow | undefined;
-  }
-
   private findById(id: number): UserRow | undefined {
     return this.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
   }
@@ -145,7 +138,6 @@ interface UserRow {
   id: number;
   user_id: string;
   player_name: string;
-  email: string;
   password_hash: string;
   created_at: string;
   updated_at: string;
