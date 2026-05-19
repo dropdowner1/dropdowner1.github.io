@@ -20,7 +20,6 @@ describe('AuthService.signup', () => {
       playerName: 'たろう',
       userId: 'puyo-001',
       password: 'p4ssw0rd!',
-      email: 'a@b.co',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -36,35 +35,15 @@ describe('AuthService.signup', () => {
       playerName: 'A',
       userId: 'dup',
       password: 'p4ssw0rd!',
-      email: 'a@b.co',
     });
     const second = auth.signup({
       playerName: 'B',
       userId: 'dup',
       password: 'p4ssw0rd!',
-      email: 'c@d.co',
     });
     expect(second.ok).toBe(false);
     if (second.ok) return;
     expect(second.code).toBe('USER_ID_TAKEN');
-  });
-
-  it('rejects a duplicate email', () => {
-    const auth = makeService();
-    auth.signup({
-      playerName: 'A',
-      userId: 'a',
-      password: 'p4ssw0rd!',
-      email: 'shared@b.co',
-    });
-    const second = auth.signup({
-      playerName: 'B',
-      userId: 'b',
-      password: 'p4ssw0rd!',
-      email: 'shared@b.co',
-    });
-    if (second.ok) return;
-    expect(second.code).toBe('EMAIL_TAKEN');
   });
 
   it('rejects a malformed body', () => {
@@ -90,7 +69,6 @@ describe('AuthService.login', () => {
       playerName: 'A',
       userId: 'alice',
       password: 'correct1!',
-      email: 'a@b.co',
     });
     const result = auth.login({ userId: 'alice', password: 'wrong___' });
     if (result.ok) return;
@@ -103,7 +81,6 @@ describe('AuthService.login', () => {
       playerName: 'Alice',
       userId: 'alice',
       password: 'correct1!',
-      email: 'a@b.co',
     });
     const result = auth.login({ userId: 'alice', password: 'correct1!' });
     expect(result.ok).toBe(true);
@@ -125,7 +102,6 @@ describe('AuthService.verify', () => {
       playerName: 'Bob',
       userId: 'bob',
       password: 'p4ssw0rd!',
-      email: 'b@b.co',
     });
     if (!signup.ok) throw new Error('signup failed');
     const verified = auth.verify(signup.session.token);

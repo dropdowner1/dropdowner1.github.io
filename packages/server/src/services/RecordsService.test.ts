@@ -21,7 +21,6 @@ function makeUser(auth: AuthService, suffix: string): { dbUserId: number; userId
     playerName: `Player_${suffix}`,
     userId: `user_${suffix}`,
     password: 'p4ssw0rd!',
-    email: `${suffix}@b.co`,
   });
   if (!signup.ok) throw new Error('signup failed');
   const verified = auth.verify(signup.session.token);

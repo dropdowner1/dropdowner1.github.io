@@ -2,7 +2,10 @@
  * AccountDialog — real sign-up / log-in against the Phase B HTTP API.
  *
  * Validation mirrors the server-side zod schemas (player name 1..20
- * chars, alnum user id, 8+ alnum password, RFC-ish email).
+ * chars, alnum user id, 8+ alnum password). Accounts are ID +
+ * password only — there is no e-mail field and no password-recovery
+ * path; lose the password, lose the account.
+ *
  * Submitting fires the matching `/api/auth/*` endpoint; the server's
  * HttpOnly cookie is set on success, the SessionContext picks the new
  * identity up via `setUser`, and the dialog closes.
@@ -42,13 +45,12 @@ export function AccountDialog({ onClose }: Props) {
   const [playerName, setPlayerName] = useState('');
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
-  const [email, setEmail] = useState('');
   const [errors, setErrors] = useState<AccountFormErrors>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const handleSignup = useCallback(async () => {
-    const input = { playerName, userId, password, email };
+    const input = { playerName, userId, password };
     const found = validateAccountForm(input);
     setErrors(found);
     setServerError(null);
@@ -66,7 +68,6 @@ export function AccountDialog({ onClose }: Props) {
     } catch (err) {
       if (err instanceof HttpApiError) {
         if (err.code === 'USER_ID_TAKEN') setErrors({ userId: err.message });
-        else if (err.code === 'EMAIL_TAKEN') setErrors({ email: err.message });
         else setServerError(err.message);
       } else {
         setServerError('サーバに接続できませんでした');
@@ -74,7 +75,7 @@ export function AccountDialog({ onClose }: Props) {
     } finally {
       setBusy(false);
     }
-  }, [playerName, userId, password, email, onClose]);
+  }, [playerName, userId, password, onClose]);
 
   const handleLogin = useCallback(async () => {
     const found = loginErrors({ userId, password });
@@ -207,17 +208,8 @@ export function AccountDialog({ onClose }: Props) {
             onChange={setPassword}
             type="password"
             error={errors.password}
-            hint="英数字記号 8 文字以上"
+            hint="英数字記号 8 文字以上 — 忘れると再ログインできません"
             autoComplete="new-password"
-          />
-          <Field
-            label="メールアドレス"
-            value={email}
-            onChange={setEmail}
-            type="email"
-            error={errors.email}
-            hint="パスワード再設定リンクの送信先"
-            autoComplete="email"
           />
         </div>
       ) : (

@@ -83,7 +83,6 @@ describe('validateAccountForm', () => {
     playerName: 'ぷよ太郎',
     userId: 'puyo_001',
     password: 'p4ssw0rd!',
-    email: 'a@b.co',
   };
 
   it('accepts a well-formed input', () => {
@@ -101,10 +100,5 @@ describe('validateAccountForm', () => {
 
   it('rejects passwords shorter than 8 characters', () => {
     expect(validateAccountForm({ ...good, password: 'p4ssw0r' }).password).toBeDefined();
-  });
-
-  it('rejects malformed emails', () => {
-    expect(validateAccountForm({ ...good, email: 'a@b' }).email).toBeDefined();
-    expect(validateAccountForm({ ...good, email: 'not-an-email' }).email).toBeDefined();
   });
 });
