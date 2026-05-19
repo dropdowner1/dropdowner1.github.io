@@ -1,5 +1,6 @@
 import type { MatchState } from '@chaindrop/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { postSoloRun } from '../api/records';
 import { audioBus } from '../audio/AudioBus';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { InputSystem } from '../input/InputSystem';
@@ -142,13 +143,21 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
             maxChain: p?.maxChain ?? 0,
             frame: source.match.frame,
           };
-          // Persist the solo run to localStorage so the rankings
-          // screen + title marquee reflect it next time around.
+          // Always persist locally so guests still get a record on
+          // the title marquee. Logged-in players get a parallel push
+          // to the server; failures stay silent (the records api
+          // logs and swallows).
           const prev: Records = loadRecords();
-          recordSoloRun(prev, {
+          const runPayload = {
             score: result.score,
             maxChain: result.maxChain,
             totalCleared: p?.cellsCleared ?? 0,
+          };
+          recordSoloRun(prev, runPayload);
+          void postSoloRun({
+            score: runPayload.score,
+            maxChain: runPayload.maxChain,
+            cellsCleared: runPayload.totalCleared,
           });
           onEndRef.current(result);
         });

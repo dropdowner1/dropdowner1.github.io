@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { SessionProvider } from './state/SessionContext';
 import './styles/global.css';
 
 const container = document.getElementById('root');
@@ -11,4 +12,8 @@ if (!container) throw new Error('root element not found');
 // instance's WebGL context is still in flight when the rerun begins.
 // Production builds strip StrictMode anyway, so removing it here only
 // changes the dev-mode experience.
-createRoot(container).render(<App />);
+createRoot(container).render(
+  <SessionProvider>
+    <App />
+  </SessionProvider>,
+);

@@ -1,13 +1,18 @@
 /**
- * RankingsScene — solo bests + recent online match history.
+ * RankingsScene — solo bests + recent online match history + global
+ * leaderboards.
  *
- * Phase A reads everything from localStorage (`state/records.ts`).
- * Phase B will swap the same component to a fetch against the
- * accounts backend, but the data shape lines up so the layout
- * doesn't have to change.
+ * Guests see their localStorage records (Phase A behaviour).
+ * Logged-in players also pull personal aggregates from `/api/records/me`
+ * and the top-N solo leaderboard from `/api/rankings/solo`. The local
+ * cache is rendered immediately so the screen is never blank during
+ * the network round-trip.
  */
 
+import type { RecordsMeResponse, SoloBestEntry } from '@chaindrop/shared/protocol';
 import { useEffect, useState } from 'react';
+import { fetchMyRecords, fetchSoloRankings } from '../api/records';
+import { useSession } from '../state/SessionContext';
 import { type Records, loadRecords } from '../state/records';
 
 interface Props {
@@ -15,16 +20,42 @@ interface Props {
 }
 
 export function RankingsScene({ onBack }: Props) {
+  const { user } = useSession();
   const [records, setRecords] = useState<Records>(() => loadRecords());
+  const [serverRecords, setServerRecords] = useState<RecordsMeResponse | null>(null);
+  const [soloLeaderboard, setSoloLeaderboard] = useState<SoloBestEntry[] | null>(null);
 
   useEffect(() => {
-    // Re-read on mount in case the user just finished a match before
-    // navigating here.
     setRecords(loadRecords());
-  }, []);
+    void fetchSoloRankings()
+      .then((res) => setSoloLeaderboard(res.rankings))
+      .catch(() => setSoloLeaderboard([]));
+    if (user) {
+      void fetchMyRecords().then((res) => {
+        if (res) setServerRecords(res);
+      });
+    } else {
+      setServerRecords(null);
+    }
+  }, [user]);
 
-  const winCount = records.online.filter((e) => e.outcome === 'win').length;
-  const lossCount = records.online.filter((e) => e.outcome === 'loss').length;
+  // Logged-in: server is the source of truth. Guest: local cache.
+  const solo = serverRecords?.solo ?? {
+    bestScore: records.solo.bestScore,
+    bestMaxChain: records.solo.bestMaxChain,
+    totalCleared: records.solo.totalCleared,
+  };
+  const online =
+    serverRecords?.online ??
+    records.online.map((e) => ({
+      at: e.at,
+      opponentName: e.opponentNickname,
+      outcome: e.outcome,
+      selfScore: e.selfScore,
+    }));
+
+  const winCount = online.filter((e) => e.outcome === 'win').length;
+  const lossCount = online.filter((e) => e.outcome === 'loss').length;
 
   return (
     <div className="scene rankings-scene">
@@ -36,22 +67,24 @@ export function RankingsScene({ onBack }: Props) {
       </div>
 
       <section className="rankings-section snes-window">
-        <h3 className="rankings-section-title">ソロプレイ</h3>
+        <h3 className="rankings-section-title">
+          {user ? `${user.playerName} のソロプレイ` : 'ソロプレイ（ゲスト・端末内）'}
+        </h3>
         <dl className="rankings-grid">
           <div>
             <dt>ベストスコア</dt>
-            <dd>{records.solo.bestScore.toLocaleString()}</dd>
+            <dd>{solo.bestScore.toLocaleString()}</dd>
           </div>
           <div>
             <dt>最大連鎖</dt>
-            <dd>{records.solo.bestMaxChain}</dd>
+            <dd>{solo.bestMaxChain}</dd>
           </div>
           <div>
             <dt>消したぷよ総数</dt>
-            <dd>{records.solo.totalCleared.toLocaleString()}</dd>
+            <dd>{solo.totalCleared.toLocaleString()}</dd>
           </div>
         </dl>
-        {records.solo.bestScoreAt && (
+        {!user && records.solo.bestScoreAt && (
           <p className="rankings-stamp">最高記録: {formatStamp(records.solo.bestScoreAt)}</p>
         )}
       </section>
@@ -61,14 +94,14 @@ export function RankingsScene({ onBack }: Props) {
         <p className="rankings-online-summary">
           {winCount} 勝 {lossCount} 敗
         </p>
-        {records.online.length === 0 ? (
+        {online.length === 0 ? (
           <p className="rankings-empty">まだ対戦記録はありません</p>
         ) : (
           <ol className="rankings-online-list">
-            {records.online.slice(0, 20).map((entry, idx) => (
+            {online.slice(0, 20).map((entry, idx) => (
               <li key={`${entry.at}-${idx}`} className={`outcome-${entry.outcome}`}>
                 <span className="rankings-outcome">{outcomeLabel(entry.outcome)}</span>
-                <span className="rankings-opp">vs {entry.opponentNickname}</span>
+                <span className="rankings-opp">vs {entry.opponentName}</span>
                 <span className="rankings-score">{entry.selfScore.toLocaleString()}</span>
                 <span className="rankings-at">{formatStamp(entry.at)}</span>
               </li>
@@ -77,9 +110,32 @@ export function RankingsScene({ onBack }: Props) {
         )}
       </section>
 
+      <section className="rankings-section snes-window">
+        <h3 className="rankings-section-title">ソロ全体ランキング</h3>
+        {soloLeaderboard === null ? (
+          <p className="rankings-empty">取得中…</p>
+        ) : soloLeaderboard.length === 0 ? (
+          <p className="rankings-empty">まだ誰もスコアを残していません</p>
+        ) : (
+          <ol className="rankings-leaderboard">
+            {soloLeaderboard.map((row, idx) => (
+              <li key={row.userId}>
+                <span className="rankings-rank">#{idx + 1}</span>
+                <span className="rankings-opp">{row.playerName}</span>
+                <span className="rankings-score">{row.bestScore.toLocaleString()}</span>
+                <span className="rankings-at">
+                  最大連鎖 {row.bestMaxChain} · {row.totalCleared.toLocaleString()} 個
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
       <p className="rankings-footnote">
-        Phase A の戦績はこの端末内（localStorage）に保存されています。アカウント機能完成後、
-        サーバ集計の本ランキングに切り替わります。
+        {user
+          ? 'ログイン中のアカウントの記録です。'
+          : '端末内（localStorage）の記録です。ログインするとサーバに保存され、他端末からも見られるようになります。'}
       </p>
     </div>
   );

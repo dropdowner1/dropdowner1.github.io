@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { postOnlineMatch } from './api/records';
 import { LobbyScene } from './scenes/LobbyScene';
 import { MatchLobbyScene, type MatchStartPayload } from './scenes/MatchLobbyScene';
 import { type MatchResult, MatchScene } from './scenes/MatchScene';
@@ -69,25 +70,29 @@ export function App() {
     setScene('networkedMatch');
   }, []);
 
-  const handleNetworkedMatchEnd = useCallback((r: NetworkedMatchResult) => {
-    // Persist this match's outcome to the local online history. The
-    // opponent's nickname is whatever the room state surfaced; in 1v1
-    // there's exactly one of them.
-    const opponent = Object.entries(
-      r as unknown as { nicknamesByPlayerId?: Record<string, string> },
-    )
-      ? '対戦相手'
-      : '対戦相手';
-    appendOnlineHistory(loadRecords(), {
-      at: new Date().toISOString(),
-      opponentNickname: opponent,
-      outcome: r.winnerId === null ? 'draw' : r.winnerId === r.myPlayerId ? 'win' : 'loss',
-      selfScore: r.score,
-    });
-    setResult({ score: r.score, maxChain: r.maxChain, frame: r.frame });
-    setNetworkedStart(null);
-    setScene('result');
-  }, []);
+  const handleNetworkedMatchEnd = useCallback(
+    (r: NetworkedMatchResult) => {
+      // Resolve the opponent's nickname from the MatchStartPayload —
+      // in 1v1 there's exactly one other id in playerOrder.
+      const opponentId = networkedStart?.playerOrder.find((id) => id !== r.myPlayerId);
+      const opponentNickname =
+        (opponentId && networkedStart?.nicknamesByPlayerId[opponentId]) || '対戦相手';
+      const outcome: 'win' | 'loss' | 'draw' =
+        r.winnerId === null ? 'draw' : r.winnerId === r.myPlayerId ? 'win' : 'loss';
+      appendOnlineHistory(loadRecords(), {
+        at: new Date().toISOString(),
+        opponentNickname,
+        outcome,
+        selfScore: r.score,
+      });
+      // Push to the server too — silent on failure (guests etc).
+      void postOnlineMatch({ opponentName: opponentNickname, outcome, selfScore: r.score });
+      setResult({ score: r.score, maxChain: r.maxChain, frame: r.frame });
+      setNetworkedStart(null);
+      setScene('result');
+    },
+    [networkedStart],
+  );
 
   const handleNetworkedQuit = useCallback(() => {
     setNetworkedStart(null);
