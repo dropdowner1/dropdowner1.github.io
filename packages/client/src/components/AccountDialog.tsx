@@ -1,18 +1,23 @@
 /**
- * AccountDialog — Phase A shell for sign-up / log-in.
+ * AccountDialog — real sign-up / log-in against the Phase B HTTP API.
  *
- * The form fields and validation mirror the eventual Phase B backend
- * (player name 1..20 chars, alnum user id, 8-char min alnum password,
- * RFC-ish email). On submit we DO NOT contact a server — the dialog
- * just stamps the entered player name into the local account record
- * so the matchmaker has something to display, marks the user as
- * "guest-while-accounts-are-offline", and shows a banner explaining
- * that real accounts ship in Phase B.
+ * Validation mirrors the server-side zod schemas (player name 1..20
+ * chars, alnum user id, 8+ alnum password, RFC-ish email).
+ * Submitting fires the matching `/api/auth/*` endpoint; the server's
+ * HttpOnly cookie is set on success, the SessionContext picks the new
+ * identity up via `setUser`, and the dialog closes.
  *
- * 「ログインしない」を選ぶと完全なゲストモードに入ります。
+ * Server errors (USER_ID_TAKEN, INVALID_CREDENTIALS, etc.) are
+ * surfaced inline with their server-provided message.
+ *
+ * 「ゲストで続行」を選ぶとサーバ呼び出しを行わずローカルゲストで進みます。
  */
 
+import type { PublicUser } from '@chaindrop/shared/protocol';
 import { useCallback, useState } from 'react';
+import { login as apiLogin, logout as apiLogout, signup as apiSignup } from '../api/auth';
+import { HttpApiError } from '../api/http';
+import { useSession } from '../state/SessionContext';
 import {
   type AccountFormErrors,
   type AccountIdentity,
@@ -22,44 +27,131 @@ import {
 } from '../state/account';
 
 interface Props {
-  onClose: (account: AccountIdentity) => void;
+  /** Called after a successful auth (or guest pass-through) with the
+   *  identity to remember; for authed flows the resolved server user
+   *  is passed alongside so callers can update the SessionContext
+   *  without an extra round-trip. */
+  onClose: (account: AccountIdentity, user?: PublicUser) => void;
 }
 
 type Tab = 'signup' | 'login';
 
 export function AccountDialog({ onClose }: Props) {
+  const { user: sessionUser, setUser: setSessionUser } = useSession();
   const [tab, setTab] = useState<Tab>('signup');
   const [playerName, setPlayerName] = useState('');
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
   const [errors, setErrors] = useState<AccountFormErrors>({});
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const submit = useCallback(
-    (kind: 'signup' | 'login') => {
-      // Login can skip email validation; sign-up runs the full check.
-      const input = { playerName, userId, password, email };
-      const found = kind === 'signup' ? validateAccountForm(input) : loginErrors(input);
-      setErrors(found);
-      if (Object.keys(found).length > 0) return;
-
-      // Phase A: stash the player name + user id locally and announce
-      // the stub. Phase B will replace this with a real fetch.
+  const handleSignup = useCallback(async () => {
+    const input = { playerName, userId, password, email };
+    const found = validateAccountForm(input);
+    setErrors(found);
+    setServerError(null);
+    if (Object.keys(found).length > 0) return;
+    setBusy(true);
+    try {
+      const user = await apiSignup(input);
       const account: AccountIdentity = {
-        playerName: playerName.trim() || loadAccount().playerName,
-        userId: userId.trim() || null,
-        guest: true,
+        playerName: user.playerName,
+        userId: user.userId,
+        guest: false,
       };
       saveAccount(account);
-      onClose(account);
-    },
-    [playerName, userId, password, email, onClose],
-  );
+      onClose(account, user);
+    } catch (err) {
+      if (err instanceof HttpApiError) {
+        if (err.code === 'USER_ID_TAKEN') setErrors({ userId: err.message });
+        else if (err.code === 'EMAIL_TAKEN') setErrors({ email: err.message });
+        else setServerError(err.message);
+      } else {
+        setServerError('サーバに接続できませんでした');
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [playerName, userId, password, email, onClose]);
+
+  const handleLogin = useCallback(async () => {
+    const found = loginErrors({ userId, password });
+    setErrors(found);
+    setServerError(null);
+    if (Object.keys(found).length > 0) return;
+    setBusy(true);
+    try {
+      const user = await apiLogin({ userId, password });
+      const account: AccountIdentity = {
+        playerName: user.playerName,
+        userId: user.userId,
+        guest: false,
+      };
+      saveAccount(account);
+      onClose(account, user);
+    } catch (err) {
+      if (err instanceof HttpApiError) setServerError(err.message);
+      else setServerError('サーバに接続できませんでした');
+    } finally {
+      setBusy(false);
+    }
+  }, [userId, password, onClose]);
 
   const continueAsGuest = useCallback(() => {
     const acc = loadAccount();
     onClose(acc);
   }, [onClose]);
+
+  const handleLogout = useCallback(async () => {
+    setBusy(true);
+    try {
+      await apiLogout();
+    } catch {
+      /* even if the server call fails the local state will reset */
+    }
+    setSessionUser(null);
+    // Reset the local account record into guest mode so other parts of
+    // the UI (matchmaker, marquee) immediately reflect the change.
+    const acc = loadAccount();
+    const guest: AccountIdentity = { playerName: acc.playerName, userId: null, guest: true };
+    saveAccount(guest);
+    setBusy(false);
+    onClose(guest);
+  }, [onClose, setSessionUser]);
+
+  // Logged-in view: skip the form entirely and offer logout.
+  if (sessionUser) {
+    return (
+      <div className="snes-window account-dialog">
+        <h2 className="account-title">アカウント</h2>
+        <p className="account-loggedin">
+          ログイン中: <strong>{sessionUser.playerName}</strong>
+          <br />
+          <span className="account-loggedin-id">@{sessionUser.userId}</span>
+        </p>
+        <div className="account-actions">
+          <button
+            type="button"
+            className="pause-btn pause-btn-primary"
+            disabled={busy}
+            onClick={() => void handleLogout()}
+          >
+            ログアウト
+          </button>
+          <button
+            type="button"
+            className="pause-btn pause-btn-secondary"
+            disabled={busy}
+            onClick={() => onClose(loadAccount(), sessionUser)}
+          >
+            閉じる
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="snes-window account-dialog">
@@ -69,14 +161,22 @@ export function AccountDialog({ onClose }: Props) {
         <button
           type="button"
           className={`account-tab ${tab === 'signup' ? 'on' : ''}`}
-          onClick={() => setTab('signup')}
+          onClick={() => {
+            setTab('signup');
+            setErrors({});
+            setServerError(null);
+          }}
         >
           新規作成
         </button>
         <button
           type="button"
           className={`account-tab ${tab === 'login' ? 'on' : ''}`}
-          onClick={() => setTab('login')}
+          onClick={() => {
+            setTab('login');
+            setErrors({});
+            setServerError(null);
+          }}
         >
           ログイン
         </button>
@@ -141,16 +241,23 @@ export function AccountDialog({ onClose }: Props) {
         </div>
       )}
 
-      <p className="account-stub">
-        アカウント機能は現在準備中です。フォームを送信するとプレイヤー名のみ保存され、
-        ゲストモードでゲームを続行します（記録はこの端末内に保存されます）。
-      </p>
+      {serverError && <p className="account-error">{serverError}</p>}
 
       <div className="account-actions">
-        <button type="button" className="pause-btn pause-btn-primary" onClick={() => submit(tab)}>
+        <button
+          type="button"
+          className="pause-btn pause-btn-primary"
+          disabled={busy}
+          onClick={() => void (tab === 'signup' ? handleSignup() : handleLogin())}
+        >
           {tab === 'signup' ? '新規作成' : 'ログイン'}
         </button>
-        <button type="button" className="pause-btn pause-btn-secondary" onClick={continueAsGuest}>
+        <button
+          type="button"
+          className="pause-btn pause-btn-secondary"
+          onClick={continueAsGuest}
+          disabled={busy}
+        >
           ゲストで続行
         </button>
       </div>
@@ -158,12 +265,7 @@ export function AccountDialog({ onClose }: Props) {
   );
 }
 
-function loginErrors(input: {
-  playerName: string;
-  userId: string;
-  password: string;
-  email: string;
-}): AccountFormErrors {
+function loginErrors(input: { userId: string; password: string }): AccountFormErrors {
   const errs: AccountFormErrors = {};
   if (input.userId.trim() === '') errs.userId = 'ユーザーIDを入力してください';
   if (input.password.length === 0) errs.password = 'パスワードを入力してください';

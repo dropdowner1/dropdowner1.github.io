@@ -27,4 +27,17 @@ export const config = {
     user: process.env.MONITOR_USER ?? 'admin',
     pass: process.env.MONITOR_PASS ?? '',
   },
+  /**
+   * SQLite location. `:memory:` (the default in dev/test) starts
+   * with a clean DB on every process boot. Production should set
+   * this to a path on a persistent volume.
+   */
+  databasePath: process.env.DATABASE_PATH ?? ':memory:',
+  /**
+   * Optional `domain` attribute for the session cookie. Leave unset
+   * (the default) for first-party deployments; only set this if the
+   * client and server share a parent domain and you need the cookie
+   * to span subdomains.
+   */
+  cookieDomain: process.env.COOKIE_DOMAIN ?? undefined,
 } as const;

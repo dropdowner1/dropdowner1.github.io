@@ -17,7 +17,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { audioBus } from '../audio/AudioBus';
 import { AccountDialog } from '../components/AccountDialog';
 import { SettingsDialog } from '../components/SettingsDialog';
-import { type AccountIdentity, loadAccount } from '../state/account';
+import { useSession } from '../state/SessionContext';
+import { type AccountIdentity, loadAccount, saveAccount } from '../state/account';
 import { applyColorModeDom } from '../state/colorMode';
 import { loadRecords } from '../state/records';
 import { loadSettings } from '../state/settings';
@@ -34,6 +35,35 @@ export function TitleScene({ onStart, onOnline, onRankings }: Props) {
   const [modal, setModal] = useState<Modal>(null);
   const [account, setAccount] = useState<AccountIdentity>(() => loadAccount());
   const [marquee] = useState(() => buildMarquee());
+  const { user, setUser } = useSession();
+
+  // Whenever the server-side session tells us who we are, mirror it
+  // into the local AccountIdentity so the matchmaker reads the same
+  // player name and any guest fallback stays coherent.
+  useEffect(() => {
+    if (user) {
+      const updated: AccountIdentity = {
+        playerName: user.playerName,
+        userId: user.userId,
+        guest: false,
+      };
+      setAccount(updated);
+      saveAccount(updated);
+    } else if (user === undefined) {
+      // Genuinely a guest — make sure we're not still showing a stale
+      // logged-in name from a previous local save.
+      const acc = loadAccount();
+      if (!acc.guest) {
+        const guest: AccountIdentity = {
+          playerName: acc.playerName,
+          userId: null,
+          guest: true,
+        };
+        setAccount(guest);
+        saveAccount(guest);
+      }
+    }
+  }, [user]);
 
   // Bootstrap audio + colour mode from persisted settings the moment
   // the title scene mounts. The audio context can't be resumed until
@@ -105,8 +135,9 @@ export function TitleScene({ onStart, onOnline, onRankings }: Props) {
       {modal === 'account' && (
         <div className="pause-overlay">
           <AccountDialog
-            onClose={(acc) => {
+            onClose={(acc, serverUser) => {
               setAccount(acc);
+              if (serverUser) setUser(serverUser);
               setModal(null);
             }}
           />
