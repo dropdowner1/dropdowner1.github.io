@@ -185,24 +185,6 @@ describe('chain resolution during a bout', () => {
   });
 });
 
-function collectEventsUntil(
-  match: MatchState,
-  predicate: (e: MatchState['events'][number]) => boolean,
-  maxFrames: number,
-): MatchState['events'] {
-  const collected: MatchState['events'] = [];
-  for (const e of match.events) {
-    if (predicate(e)) collected.push(e);
-  }
-  if (collected.length > 0) return collected;
-  for (let i = 0; i < maxFrames; i++) {
-    advanceFrame(match);
-    for (const e of match.events) if (predicate(e)) collected.push(e);
-    if (collected.length > 0) return collected;
-  }
-  return collected;
-}
-
 // --------------------------------------------------------------
 // Garbage propagation across players (2-player)
 // --------------------------------------------------------------
