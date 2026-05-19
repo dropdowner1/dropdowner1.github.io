@@ -45,7 +45,7 @@ jobs:
           # bundle as VITE_API_URL. Update this if the service moves.
           VITE_API_URL: https://chaindrop-server-production.up.railway.app
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
 
       - uses: actions/upload-pages-artifact@v3
         with:
