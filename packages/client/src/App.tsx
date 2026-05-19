@@ -4,6 +4,7 @@ import { LobbyScene } from './scenes/LobbyScene';
 import { MatchLobbyScene, type MatchStartPayload } from './scenes/MatchLobbyScene';
 import { type MatchResult, MatchScene } from './scenes/MatchScene';
 import { type NetworkedMatchResult, NetworkedMatchScene } from './scenes/NetworkedMatchScene';
+import { PasswordResetScene } from './scenes/PasswordResetScene';
 import { RankingsScene } from './scenes/RankingsScene';
 import { ResultScene } from './scenes/ResultScene';
 import { TitleScene } from './scenes/TitleScene';
@@ -19,15 +20,48 @@ type SceneKind =
   | 'lobby'
   | 'matchLobby'
   | 'networkedMatch'
-  | 'rankings';
+  | 'rankings'
+  | 'passwordReset';
+
+/** Extract a `#reset/<token>` token from the current location hash. */
+function readResetToken(): string | null {
+  const m = /^#reset\/([^/?#]+)/.exec(window.location.hash);
+  return m ? decodeURIComponent(m[1] ?? '') : null;
+}
 
 export function App() {
-  const [scene, setScene] = useState<SceneKind>('title');
+  const initialToken = typeof window !== 'undefined' ? readResetToken() : null;
+  const [scene, setScene] = useState<SceneKind>(initialToken ? 'passwordReset' : 'title');
+  const [resetToken, setResetToken] = useState<string | null>(initialToken);
   const [matchKey, setMatchKey] = useState(0);
   const [result, setResult] = useState<MatchResult | null>(null);
   const [matchRoomId, setMatchRoomId] = useState('');
   const [matchNickname, setMatchNickname] = useState('');
   const [networkedStart, setNetworkedStart] = useState<MatchStartPayload | null>(null);
+
+  // Keep the deep-link reset flow reactive — if the user opens the
+  // emailed link while the tab is already up, we should still pick it
+  // up rather than ignoring it until a page reload.
+  useEffect(() => {
+    function onHash() {
+      const tok = readResetToken();
+      if (tok) {
+        setResetToken(tok);
+        setScene('passwordReset');
+      }
+    }
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const exitReset = useCallback(() => {
+    // Drop the hash so a refresh doesn't drop us back into the flow.
+    if (window.location.hash) {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    setResetToken(null);
+    setScene('title');
+  }, []);
 
   // Apply persisted color mode on first paint so the user's previous
   // pick survives a reload. Settings volumes are applied lazily inside
@@ -100,6 +134,10 @@ export function App() {
   }, []);
 
   switch (scene) {
+    case 'passwordReset':
+      if (!resetToken)
+        return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
+      return <PasswordResetScene token={resetToken} onDone={exitReset} />;
     case 'title':
       return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
     case 'match':

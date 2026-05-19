@@ -16,6 +16,8 @@ import cors from 'cors';
 import express from 'express';
 import basicAuth from 'express-basic-auth';
 import { AuthService } from './auth/AuthService';
+import { resolveEmailSender } from './auth/EmailSender';
+import { PasswordResetService } from './auth/PasswordResetService';
 import { config } from './config';
 import { openDatabase } from './db/Database';
 import { LobbyRoom } from './rooms/LobbyRoom';
@@ -29,6 +31,9 @@ const app = express();
 const db = openDatabase({ path: config.databasePath });
 const authService = new AuthService(db);
 const recordsService = new RecordsService(db);
+const passwordResetService = new PasswordResetService(db);
+const emailSender = resolveEmailSender();
+logger.info({ transport: emailSender.kind }, 'email sender wired');
 
 app.use(
   cors({
@@ -55,7 +60,15 @@ app.get('/healthz', (_req, res) => {
   });
 });
 
-app.use('/api/auth', authRouter(authService));
+app.use(
+  '/api/auth',
+  authRouter({
+    auth: authService,
+    resets: passwordResetService,
+    email: emailSender,
+    clientBaseUrl: config.clientBaseUrl,
+  }),
+);
 app.use('/api/me', (_req, res, next) => {
   // /api/me is exposed under /api/auth/me; keep the legacy mount in
   // case anything in docs refers to the bare path.

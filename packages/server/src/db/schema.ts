@@ -45,6 +45,20 @@ CREATE TABLE IF NOT EXISTS match_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_match_user ON match_history(user_id, played_at DESC);
+
+CREATE TABLE IF NOT EXISTS password_resets (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- bcrypt hash of the token; the plaintext token only ever leaves
+  -- through the e-mail body so leaking the DB row can't grant entry.
+  token_hash  TEXT    NOT NULL,
+  expires_at  TEXT    NOT NULL,
+  used_at     TEXT,
+  created_at  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_resets_user
+  ON password_resets(user_id, created_at DESC);
 `;
 
 export function applySchema(db: Database): void {

@@ -15,7 +15,12 @@
 
 import type { PublicUser } from '@chaindrop/shared/protocol';
 import { useCallback, useState } from 'react';
-import { login as apiLogin, logout as apiLogout, signup as apiSignup } from '../api/auth';
+import {
+  login as apiLogin,
+  logout as apiLogout,
+  requestPasswordReset as apiRequestPasswordReset,
+  signup as apiSignup,
+} from '../api/auth';
 import { HttpApiError } from '../api/http';
 import { useSession } from '../state/SessionContext';
 import {
@@ -34,7 +39,7 @@ interface Props {
   onClose: (account: AccountIdentity, user?: PublicUser) => void;
 }
 
-type Tab = 'signup' | 'login';
+type Tab = 'signup' | 'login' | 'forgot';
 
 export function AccountDialog({ onClose }: Props) {
   const { user: sessionUser, setUser: setSessionUser } = useSession();
@@ -46,6 +51,10 @@ export function AccountDialog({ onClose }: Props) {
   const [errors, setErrors] = useState<AccountFormErrors>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // 「パスワードを忘れた」 — banner that survives after submit so the
+  // user knows to check their inbox.
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetSent, setResetSent] = useState(false);
 
   const handleSignup = useCallback(async () => {
     const input = { playerName, userId, password, email };
@@ -98,6 +107,24 @@ export function AccountDialog({ onClose }: Props) {
       setBusy(false);
     }
   }, [userId, password, onClose]);
+
+  const handleForgot = useCallback(async () => {
+    const next: AccountFormErrors = {};
+    if (resetEmail.trim() === '') next.email = 'メールアドレスを入力してください';
+    setErrors(next);
+    setServerError(null);
+    if (Object.keys(next).length > 0) return;
+    setBusy(true);
+    try {
+      await apiRequestPasswordReset({ email: resetEmail.trim() });
+      setResetSent(true);
+    } catch (err) {
+      if (err instanceof HttpApiError) setServerError(err.message);
+      else setServerError('サーバに接続できませんでした');
+    } finally {
+      setBusy(false);
+    }
+  }, [resetEmail]);
 
   const continueAsGuest = useCallback(() => {
     const acc = loadAccount();
@@ -182,7 +209,7 @@ export function AccountDialog({ onClose }: Props) {
         </button>
       </div>
 
-      {tab === 'signup' ? (
+      {tab === 'signup' && (
         <div className="account-form">
           <Field
             label="プレイヤー名"
@@ -220,7 +247,8 @@ export function AccountDialog({ onClose }: Props) {
             autoComplete="email"
           />
         </div>
-      ) : (
+      )}
+      {tab === 'login' && (
         <div className="account-form">
           <Field
             label="ユーザーID"
@@ -238,28 +266,91 @@ export function AccountDialog({ onClose }: Props) {
             error={errors.password}
             autoComplete="current-password"
           />
+          <button
+            type="button"
+            className="account-link"
+            onClick={() => {
+              setTab('forgot');
+              setErrors({});
+              setServerError(null);
+              setResetSent(false);
+            }}
+          >
+            パスワードを忘れた場合
+          </button>
+        </div>
+      )}
+      {tab === 'forgot' && (
+        <div className="account-form">
+          {resetSent ? (
+            <p className="account-loggedin">
+              再設定リンクをメールでお送りしました。
+              <br />
+              受信ボックス（迷惑メールも）をご確認ください。
+            </p>
+          ) : (
+            <Field
+              label="メールアドレス"
+              value={resetEmail}
+              onChange={setResetEmail}
+              type="email"
+              error={errors.email}
+              hint="登録済みのメールアドレスにリンクを送ります"
+              autoComplete="email"
+            />
+          )}
         </div>
       )}
 
       {serverError && <p className="account-error">{serverError}</p>}
 
       <div className="account-actions">
-        <button
-          type="button"
-          className="pause-btn pause-btn-primary"
-          disabled={busy}
-          onClick={() => void (tab === 'signup' ? handleSignup() : handleLogin())}
-        >
-          {tab === 'signup' ? '新規作成' : 'ログイン'}
-        </button>
-        <button
-          type="button"
-          className="pause-btn pause-btn-secondary"
-          onClick={continueAsGuest}
-          disabled={busy}
-        >
-          ゲストで続行
-        </button>
+        {tab === 'forgot' ? (
+          <>
+            {!resetSent && (
+              <button
+                type="button"
+                className="pause-btn pause-btn-primary"
+                disabled={busy}
+                onClick={() => void handleForgot()}
+              >
+                送信
+              </button>
+            )}
+            <button
+              type="button"
+              className="pause-btn pause-btn-secondary"
+              disabled={busy}
+              onClick={() => {
+                setTab('login');
+                setErrors({});
+                setServerError(null);
+                setResetSent(false);
+              }}
+            >
+              ログインに戻る
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="pause-btn pause-btn-primary"
+              disabled={busy}
+              onClick={() => void (tab === 'signup' ? handleSignup() : handleLogin())}
+            >
+              {tab === 'signup' ? '新規作成' : 'ログイン'}
+            </button>
+            <button
+              type="button"
+              className="pause-btn pause-btn-secondary"
+              onClick={continueAsGuest}
+              disabled={busy}
+            >
+              ゲストで続行
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

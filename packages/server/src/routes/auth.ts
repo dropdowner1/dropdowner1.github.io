@@ -6,14 +6,34 @@
  * session cookie.
  */
 
+import { passwordResetConfirm, passwordResetRequest } from '@chaindrop/shared/protocol';
 import type { CookieOptions, Request, Response, Router } from 'express';
 import express from 'express';
 import type { AuthService } from '../auth/AuthService';
 import type { AuthError, AuthSession } from '../auth/AuthService';
+import type { EmailSender } from '../auth/EmailSender';
+import type { PasswordResetService } from '../auth/PasswordResetService';
 import { config } from '../config';
 import { COOKIE_NAME, type ResolvedSession, requireAuth } from '../middleware/requireAuth';
+import { logger } from '../util/logger';
 
-export function authRouter(auth: AuthService): Router {
+export interface AuthRouterDeps {
+  auth: AuthService;
+  resets: PasswordResetService;
+  email: EmailSender;
+  /**
+   * Base URL the e-mail body should point the user at for the
+   * second step of the reset flow. Resolves to a deep link the
+   * client can route on (we use the hash-based `#reset/<token>`
+   * scheme so static hosting like GitHub Pages doesn't need server
+   * rewrites). Typically `https://example.com/` (no trailing
+   * specifics) — the route appends `#reset/<token>` itself.
+   */
+  clientBaseUrl: string;
+}
+
+export function authRouter(deps: AuthRouterDeps): Router {
+  const { auth, resets, email, clientBaseUrl } = deps;
   const router = express.Router();
 
   router.post('/signup', (req, res) => {
@@ -38,6 +58,59 @@ export function authRouter(auth: AuthService): Router {
   router.get('/me', requireAuth(auth), (_req: Request, res: Response) => {
     const session = res.locals.session as ResolvedSession;
     res.json({ user: { userId: session.userId, playerName: session.playerName } });
+  });
+
+  /**
+   * Step 1 of the forgot-password flow. We always respond 204 — even
+   * when the e-mail isn't registered — so an attacker can't enumerate
+   * accounts by watching the status code.
+   */
+  router.post('/password-reset/request', async (req, res) => {
+    const parsed = passwordResetRequest.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: 'INVALID_BODY', message: parsed.error.issues[0]?.message ?? 'bad body' });
+      return;
+    }
+    const minted = resets.request(parsed.data.email);
+    if (minted) {
+      const url = `${clientBaseUrl.replace(/\/$/, '')}/#reset/${minted.token}`;
+      try {
+        await email.send({
+          to: parsed.data.email,
+          subject: '【ChainDrop】パスワード再設定のご案内',
+          text: `${minted.playerName} 様\n\nChainDrop のパスワード再設定リクエストを受け付けました。\n以下のリンクから新しいパスワードを設定してください（1時間以内）：\n\n${url}\n\nお心当たりがない場合は、このメールを破棄してください。\n`,
+        });
+      } catch (err) {
+        // We log but still 204 so we don't leak existence information.
+        logger.error({ err }, 'password-reset email send failed');
+      }
+    }
+    res.status(204).end();
+  });
+
+  router.post('/password-reset/confirm', (req, res) => {
+    const parsed = passwordResetConfirm.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ error: 'INVALID_BODY', message: parsed.error.issues[0]?.message ?? 'bad body' });
+      return;
+    }
+    const outcome = resets.confirm(parsed.data.token, parsed.data.newPassword);
+    if ('error' in outcome) {
+      const status = outcome.error === 'INVALID_PASSWORD' ? 400 : 401;
+      res.status(status).json({
+        error: outcome.error,
+        message:
+          outcome.error === 'INVALID_PASSWORD'
+            ? 'パスワードの形式が正しくありません'
+            : 'リセットリンクが無効か期限切れです',
+      });
+      return;
+    }
+    res.status(204).end();
   });
 
   return router;

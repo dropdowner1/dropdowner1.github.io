@@ -137,6 +137,19 @@ export const recordsMeResponse = z.object({
 });
 export type RecordsMeResponse = z.infer<typeof recordsMeResponse>;
 
+// ----------------------------- Password reset -----------------------
+
+export const passwordResetRequest = z.object({
+  email,
+});
+export type PasswordResetRequest = z.infer<typeof passwordResetRequest>;
+
+export const passwordResetConfirm = z.object({
+  token: z.string().min(8),
+  newPassword: password,
+});
+export type PasswordResetConfirm = z.infer<typeof passwordResetConfirm>;
+
 // ----------------------------- Common error --------------------------
 
 export const apiError = z.object({

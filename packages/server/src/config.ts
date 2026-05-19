@@ -40,4 +40,11 @@ export const config = {
    * to span subdomains.
    */
   cookieDomain: process.env.COOKIE_DOMAIN ?? undefined,
+  /**
+   * Public URL of the client. Used to build the
+   * `#reset/<token>` deep-link inside password-reset emails. Defaults
+   * to the local Vite dev origin so a developer can test the flow
+   * without setting anything up.
+   */
+  clientBaseUrl: process.env.CLIENT_BASE_URL ?? 'http://localhost:5173',
 } as const;
