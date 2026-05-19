@@ -15,7 +15,7 @@
   "dependencies": {
     "@chaindrop/shared": "workspace:*",
     "@colyseus/core": "^0.16.0",
-    "@colyseus/monitor": "^0.16.0",
+    "@colyseus/monitor": "^0.17.8",
     "@colyseus/schema": "^3.0.76",
     "@colyseus/ws-transport": "^0.16.0",
     "bcryptjs": "^3.0.3",
