@@ -17,7 +17,7 @@
  *   - Occasional eye blinks on settled puyos (sprite squash).
  */
 
-import type { PlayerState } from '@chaindrop/shared';
+import { FALL_FRAMES_PER_CELL, FALL_INTERVAL_SOFT, type PlayerState } from '@chaindrop/shared';
 import { Container, Graphics, Sprite, type Texture } from 'pixi.js';
 import type { PuyoSheet } from './PuyoTexture';
 import { SHEET_CELL } from './PuyoTexture';
@@ -36,18 +36,24 @@ const FRAME_LINE_COLOR = 0xffd60a;
 const GRID_LINE_COLOR = 0x2a2a44;
 
 /** Target sprite size / texture cell size. Applied as the base scale. */
-const BASE_SCALE = CELL_SIZE / SHEET_CELL; // 40 / 32 = 1.25
+const BASE_SCALE = CELL_SIZE / SHEET_CELL; // 48 / 32 = 1.5
 
 /** Rotation arc duration in render frames. */
 const ROTATION_FRAMES = 6;
-/** Lerp factor for smoothed soft-drop descent (per render frame). */
-const SOFT_DROP_LERP = 0.35;
+/**
+ * Soft-drop visual descent — constant pixels per render frame, matching
+ * the simulator's `FALL_INTERVAL_SOFT` (one cell every N frames). Using a
+ * linear step rather than the previous exponential lerp keeps perceived
+ * velocity constant the moment the key is held, so it doesn't feel like
+ * the piece accelerates from rest.
+ */
+const SOFT_DROP_STEP = CELL_SIZE / FALL_INTERVAL_SOFT;
 /**
  * Gravity-fall speed in pixels per render frame (uniform across columns).
- * Stays in sync with the simulator's `FALL_FRAMES_PER_CELL = 5` so that
- * the resolve / chigiri tick windows correctly cover the visible fall.
+ * Stays in sync with the simulator's `FALL_FRAMES_PER_CELL` so that the
+ * resolve / chigiri tick windows correctly cover the visible fall.
  */
-const FALL_SPEED = CELL_SIZE / 5; // 8 px/frame — 1 cell per 5 frames.
+const FALL_SPEED = CELL_SIZE / FALL_FRAMES_PER_CELL;
 /**
  * Duration of the post-fall gummy bounce, in render frames. A longer
  * window with a softer scale gives the impact a "mochi" squish — slow
@@ -98,6 +104,16 @@ interface CellSnapshot {
   targetY: number;
   /** True while the fall animation is still moving. */
   falling: boolean;
+  /**
+   * True when the cell is currently in its pop animation. Needed so the
+   * very next frame — when the simulator has already cleared the cluster
+   * AND a same-color puyo has fallen from above into this exact (x, y) —
+   * we recognise that the sprite that "matches by id" is actually a
+   * brand-new arrival and recreate it so the fall animates properly.
+   * Without this flag, the renderer reuses the popping sprite for the
+   * fall-in and the new puyo appears to teleport down.
+   */
+  popping: boolean;
   /** Gummy-bounce frame counter: -1 means inactive, 0..BOUNCE_FRAMES-1 active. */
   bounceFrame: number;
   /** Frames left in an idle blink (0 = not blinking). */
@@ -196,10 +212,28 @@ export class FieldRenderer {
     for (const spec of specs) {
       seen.add(spec.id);
       const existing = this.boardSprites.get(spec.id);
-      if (existing && existing.snap.kind === spec.cellKind) {
+      // A sprite that was popping last frame can collide with a brand
+      // new arrival from above: same (x, y), same colour, but a
+      // different physical cell. If we naively `updateExisting` here,
+      // the new puyo silently inherits the popping sprite's state and
+      // appears to teleport down. Treat that case as a recreate so the
+      // fall animation starts from the source above.
+      const wasPopping = !!existing && existing.snap.popping;
+      const stalePop = wasPopping && (spec.popProgress === undefined || spec.popProgress >= 1);
+      if (existing && existing.snap.kind === spec.cellKind && !stalePop) {
         this.updateExistingBoardSprite(existing, spec);
       } else {
         if (existing) {
+          // Existing sprite is either a different colour (unusual; gravity
+          // never swaps colours) or a freshly-cleared popping cell. Burst
+          // out the popping cell so the visual "clear" still reads.
+          if (stalePop) {
+            this.emitBurst(
+              existing.container.x,
+              existing.snap.displayY,
+              this.getTintForKind(existing.snap.kind),
+            );
+          }
           this.spriteLayer.removeChild(existing.container);
           existing.container.destroy({ children: true });
           this.boardSprites.delete(spec.id);
@@ -271,6 +305,7 @@ export class FieldRenderer {
       displayY: fallFromY,
       targetY: spec.y,
       falling,
+      popping: false,
       bounceFrame: -1,
       blinkFrames: 0,
       blinkIsWink: false,
@@ -398,6 +433,7 @@ export class FieldRenderer {
 
     // Pop: longer-lasting transparency + rapid blink between visible
     // and dim, then a final fade-out at the very end.
+    entry.snap.popping = spec.popProgress !== undefined && spec.popProgress > 0;
     if (spec.popProgress !== undefined && spec.popProgress > 0) {
       const p = Math.min(1, spec.popProgress);
       // Subtle scale pulse — much smaller than before so the puyo
@@ -638,11 +674,17 @@ export class FieldRenderer {
       // Horizontal always snaps.
       this.pieceAnim.displayAxisX = targetAxisX;
 
-      // Vertical: smooth while soft-dropping, snap otherwise.
+      // Vertical: smooth while soft-dropping, snap otherwise. Smoothing
+      // is a CONSTANT pixel step per frame (matching the simulator's
+      // soft-drop pace) so the descent reads as steady-velocity instead
+      // of the exponential ease-in the old lerp produced.
       if (player.softDrop && targetAxisY !== this.pieceAnim.displayAxisY) {
         const dy = targetAxisY - this.pieceAnim.displayAxisY;
-        this.pieceAnim.displayAxisY += dy * SOFT_DROP_LERP;
-        if (Math.abs(dy) < 0.5) this.pieceAnim.displayAxisY = targetAxisY;
+        const step = Math.sign(dy) * Math.min(Math.abs(dy), SOFT_DROP_STEP);
+        this.pieceAnim.displayAxisY += step;
+        if (Math.abs(targetAxisY - this.pieceAnim.displayAxisY) < 0.5) {
+          this.pieceAnim.displayAxisY = targetAxisY;
+        }
       } else {
         this.pieceAnim.displayAxisY = targetAxisY;
       }

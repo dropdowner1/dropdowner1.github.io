@@ -60,26 +60,38 @@ export const FALL_SPEEDUP_FRAMES_PER_LEVEL = 4;
  * count. Floors at `FALL_INTERVAL_MIN` so the game is still readable
  * even after hundreds of pops. Pure function — used by both the
  * simulator and the HUD.
+ *
+ * `normalInterval` defaults to `FALL_INTERVAL_NORMAL` (普通 difficulty)
+ * but accepts a per-match override so the difficulty picker can pick a
+ * slower or faster starting pace.
  */
-export function fallIntervalForCleared(cellsCleared: number): number {
+export function fallIntervalForCleared(
+  cellsCleared: number,
+  normalInterval: number = FALL_INTERVAL_NORMAL,
+): number {
   const level = Math.floor(Math.max(0, cellsCleared) / FALL_SPEEDUP_CLEARED_PER_LEVEL);
-  return Math.max(FALL_INTERVAL_MIN, FALL_INTERVAL_NORMAL - level * FALL_SPEEDUP_FRAMES_PER_LEVEL);
+  return Math.max(FALL_INTERVAL_MIN, normalInterval - level * FALL_SPEEDUP_FRAMES_PER_LEVEL);
 }
 // 18 frames = 0.3s at 60fps. The grace window between a piece touching
 // the ground and locking — gives the player a beat to slide it sideways.
 export const LOCK_DELAY_FRAMES = 18;
 export const LOCK_RESET_LIMIT = 8;
 // Per-cell visual fall time. Mirrors the renderer's FALL_SPEED
-// (CELL_SIZE / 5 = 8 px/frame) — keep in sync if either is tuned.
-export const FALL_FRAMES_PER_CELL = 5;
+// (CELL_SIZE / FALL_FRAMES_PER_CELL px/frame) — keep in sync if
+// either is tuned. Lowered from 5 to 3 frames for snappier chigiri
+// + post-pop falls; the bounce + chigiri windows scale with this.
+export const FALL_FRAMES_PER_CELL = 3;
 // Frames to hold after a fall lands so the bounce/squish animation can
 // finish before the next chain tick or the next piece spawns.
-export const POST_FALL_SETTLE_FRAMES = 8;
+export const POST_FALL_SETTLE_FRAMES = 5;
 // Chigiri (split-drop) phase. The piece sits at its locked position
 // for this many frames before gravity is applied; after gravity, the
 // phase extends by `maxFall * FALL_FRAMES_PER_CELL + POST_FALL_SETTLE`
 // so the visual fall is always allowed to complete before resolving.
-export const CHIGIRI_FRAMES = 40;
+// 20-frame hold (≈0.33s) is enough for the eye to register the split
+// without the lull feeling sluggish; the old 40-frame value was tuned
+// for a slower fall speed.
+export const CHIGIRI_FRAMES = 20;
 // One chain tick in frames. Pop animation runs from frame 0 to
 // POP_FRAMES; gravity fires at POP_FRAMES. The remaining frames cover
 // the visible fall — the tick stretches dynamically per
@@ -206,6 +218,14 @@ export interface MatchState {
   winnerId: PlayerId | null;
   /** Events produced during the most recent `advanceFrame` call. */
   events: SimulatorEvent[];
+  /**
+   * Starting natural-fall interval (frames per cell). Overrides
+   * `FALL_INTERVAL_NORMAL` for difficulty selection — solo play picks
+   * this when the player chooses 激甘 / 甘口 / 普通 / 中辛 / 辛口 / 激辛.
+   * The progressive speed-up in `fallIntervalForCleared` is applied on
+   * top of whichever starting value is set.
+   */
+  fallIntervalNormal: number;
 }
 
 export interface PlayerInit {
@@ -219,6 +239,12 @@ export interface MatchConfig {
   players: readonly PlayerInit[];
   dropQueueLength?: number;
   startWithCountdown?: boolean;
+  /**
+   * Starting natural-fall interval (frames per cell). Defaults to
+   * `FALL_INTERVAL_NORMAL` (= 普通) when omitted; the solo difficulty
+   * picker passes 12..72 to cover 激甘..激辛.
+   */
+  fallIntervalNormal?: number;
 }
 
 // ---------- Drop queue generation ----------
@@ -299,6 +325,7 @@ export function createMatchState(config: MatchConfig): MatchState {
     rng,
     winnerId: null,
     events: [],
+    fallIntervalNormal: config.fallIntervalNormal ?? FALL_INTERVAL_NORMAL,
   };
 }
 
@@ -430,7 +457,7 @@ function handleFalling(
   // 2. Gravity.
   const fallInterval = player.softDrop
     ? FALL_INTERVAL_SOFT
-    : fallIntervalForCleared(player.cellsCleared);
+    : fallIntervalForCleared(player.cellsCleared, match.fallIntervalNormal);
   player.fallTimer++;
   if (player.fallTimer >= fallInterval) {
     const down = tryMove(player.board, player.current, 0, -1);

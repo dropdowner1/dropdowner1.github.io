@@ -1481,3 +1481,78 @@ html[data-color-mode="high-contrast"] {
   color: var(--snes-accent);
   letter-spacing: 0.08em;
 }
+
+/* ------------- Difficulty picker ------------- */
+
+.difficulty-window {
+  width: min(560px, 100% - 48px);
+  margin: 6vh auto;
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.difficulty-title {
+  margin: 0;
+  text-align: center;
+  font-family: var(--pixel-font-jp);
+  font-size: 1.6rem;
+  color: var(--snes-accent);
+  letter-spacing: 0.12em;
+  text-shadow: 2px 2px 0 #050616;
+}
+
+.difficulty-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.difficulty-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 8px;
+  background: var(--snes-bg-deep);
+  color: var(--snes-text);
+  border: none;
+  cursor: pointer;
+  font-family: var(--pixel-font-jp);
+  box-shadow: inset 0 0 0 2px var(--snes-panel-edge);
+  transition: transform 60ms ease, box-shadow 60ms ease, background 60ms ease;
+}
+
+.difficulty-cell:hover {
+  transform: translate(1px, 1px);
+}
+
+.difficulty-cell.on {
+  background: var(--snes-panel-edge);
+  box-shadow: inset 0 0 0 2px var(--snes-accent), 2px 2px 0 0 var(--snes-panel-shadow);
+}
+
+.difficulty-cell-label {
+  font-size: 1.2rem;
+  color: var(--snes-accent);
+  letter-spacing: 0.06em;
+}
+
+.difficulty-cell-hint {
+  font-size: 0.75rem;
+  color: var(--snes-text-dim);
+  letter-spacing: 0.04em;
+}
+
+.difficulty-cell.on .difficulty-cell-hint {
+  color: var(--snes-text);
+}
+
+.difficulty-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 8px;
+}

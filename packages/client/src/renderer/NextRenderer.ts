@@ -1,13 +1,20 @@
 /**
- * NEXT preview — shows the three upcoming pieces in a small panel
- * next to the main field.
+ * NEXT preview — shows the next two upcoming pieces in a compact panel
+ * to the right of the main field.
  *
- * Layout (solo, right of the field):
- *   - Piece 1: full size, topmost
- *   - Piece 2: slightly smaller, below piece 1
- *   - Piece 3: same scale as piece 2, positioned far enough right
- *     that 70% of its width sits beyond the panel's visible edge.
- *     A rectangular mask clips anything outside the panel.
+ * Slot 0 (top, larger): the piece that will spawn next.
+ * Slot 1 (bottom, smaller): the one after.
+ *
+ * When `dropQueueIndex` advances (the active piece locks), the panel
+ * shifts everything up by one slot over `SLIDE_FRAMES`:
+ *   - The previous slot-0 puyo slides up and fades out off the top.
+ *   - The previous slot-1 puyo slides up into slot 0.
+ *   - A brand-new puyo slides in from below into slot 1.
+ *
+ * To keep that three-piece transition possible inside a panel that only
+ * shows two at rest, the renderer maintains three sprite "tracks" and
+ * picks which queue index each track points at depending on whether a
+ * slide is in flight.
  */
 
 import type { MatchState } from '@chaindrop/shared';
@@ -15,38 +22,67 @@ import { Container, Graphics, Sprite } from 'pixi.js';
 import type { PuyoSheet } from './PuyoTexture';
 import { SHEET_CELL } from './PuyoTexture';
 
-const PANEL_X = 820;
-const PANEL_Y = 120;
-const PANEL_WIDTH = 110;
-const PANEL_HEIGHT = 440;
+const PANEL_X = 808;
+const PANEL_Y = 80;
+const PANEL_WIDTH = 130;
 
-const CELL_SIZES: readonly number[] = [40, 32, 32];
-const VERTICAL_GAP = 24;
-/** For piece 3: how much of its width is inside the panel (30%). */
-const PIECE3_VISIBLE_FRACTION = 0.3;
+/** Cell size in slot 0 (top, full) and slot 1 (bottom, secondary). */
+const SLOT0_CELL = 44;
+const SLOT1_CELL = 32;
+const VERTICAL_GAP = 18;
+const PANEL_TOP_PAD = 28;
+const PANEL_BOTTOM_PAD = 20;
+
+/** Frames over which one slot-shift animates after a piece is consumed. */
+const SLIDE_FRAMES = 10;
 
 const FRAME_COLOR = 0xffd60a;
 const PANEL_BG = 0x0c0c1f;
 
+interface Track {
+  container: Container;
+  axis: Sprite;
+  child: Sprite;
+  cell: number;
+}
+
 export class NextRenderer {
   readonly container: Container;
   private frame: Graphics;
-  private slots: Container[] = [];
-  private slotSprites: { axis: Sprite; child: Sprite }[] = [];
+  private tracks: Track[] = []; // length 3: out / mid / in
+  private slot0RestY = 0;
+  private slot1RestY = 0;
+  private offTopY = 0;
+  private offBottomY = 0;
+  /** dropQueueIndex value observed on the last update; drives the slide. */
+  private lastDropQueueIndex = -1;
+  /** 0..SLIDE_FRAMES while slots are mid-shift; -1 when at rest. */
+  private slideFrame = -1;
+  private readonly panelHeight: number;
 
   constructor(private sheet: PuyoSheet) {
     this.container = new Container();
     this.frame = new Graphics();
     this.container.addChild(this.frame);
 
+    // Panel geometry.
+    const total = SLOT0_CELL * 2 + VERTICAL_GAP + SLOT1_CELL * 2 + PANEL_TOP_PAD + PANEL_BOTTOM_PAD;
+    this.panelHeight = total;
+    this.slot0RestY = PANEL_Y + PANEL_TOP_PAD + SLOT0_CELL / 2;
+    this.slot1RestY = this.slot0RestY + SLOT0_CELL + VERTICAL_GAP + SLOT1_CELL / 2;
+    this.offTopY = PANEL_Y - SLOT0_CELL;
+    this.offBottomY = PANEL_Y + this.panelHeight + SLOT1_CELL;
+
+    // Clip everything outside the frame so sliding sprites don't bleed
+    // into the HUD.
     const mask = new Graphics();
-    mask.rect(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT);
+    mask.rect(PANEL_X, PANEL_Y, PANEL_WIDTH, this.panelHeight);
     mask.fill(0xffffff);
     this.container.addChild(mask);
     this.container.mask = mask;
 
     this.drawFrame();
-    this.buildSlots();
+    this.buildTracks();
   }
 
   update(match: MatchState, playerIndex = 0): void {
@@ -54,29 +90,47 @@ export class NextRenderer {
     if (!player) return;
     const baseIndex = player.dropQueueIndex;
 
-    // `dropQueueIndex` is the index of the NEXT piece to spawn —
-    // i.e., what *will* drop after the current piece locks. So the
-    // panel slots map directly to (baseIndex + 0, +1, +2).
-    for (let i = 0; i < 3; i++) {
-      const pair = match.dropQueue[baseIndex + i];
-      const sprites = this.slotSprites[i];
-      const slot = this.slots[i];
-      if (!slot || !sprites) continue;
-      if (pair) {
-        const [axisColor, childColor] = pair;
-        sprites.axis.texture = this.sheet.get(axisColor);
-        sprites.child.texture = this.sheet.get(childColor);
-        slot.visible = true;
-      } else {
-        slot.visible = false;
-      }
+    // Kick off a slide animation when the queue index advances by one
+    // (the player just consumed a piece). Multi-step jumps shouldn't
+    // animate — those happen on reset/spawn and benefit from snapping.
+    if (this.lastDropQueueIndex >= 0 && baseIndex === this.lastDropQueueIndex + 1) {
+      this.slideFrame = 0;
+    } else if (this.lastDropQueueIndex !== baseIndex) {
+      this.slideFrame = -1;
+    }
+    this.lastDropQueueIndex = baseIndex;
+
+    const sliding = this.slideFrame >= 0 && this.slideFrame < SLIDE_FRAMES;
+
+    if (sliding) {
+      // Outgoing piece (was in slot 0, now sliding off the top).
+      this.paintTrack(0, match.dropQueue[baseIndex - 1]);
+      // Moving-up piece (was in slot 1, now sliding into slot 0).
+      this.paintTrack(1, match.dropQueue[baseIndex]);
+      // Incoming piece (sliding in from below into slot 1).
+      this.paintTrack(2, match.dropQueue[baseIndex + 1]);
+    } else {
+      // At rest: track 0 holds the current next at slot 0, track 1 holds
+      // the next-next at slot 1, track 2 is parked off-bottom invisible.
+      this.paintTrack(0, match.dropQueue[baseIndex]);
+      this.paintTrack(1, match.dropQueue[baseIndex + 1]);
+      const t2 = this.tracks[2];
+      if (t2) t2.container.visible = false;
+    }
+
+    // Apply positions for this frame (t=0 means at rest).
+    const t = sliding ? easeInOutQuad((this.slideFrame + 1) / SLIDE_FRAMES) : 0;
+    this.layoutTracks(t);
+
+    if (sliding) {
+      this.slideFrame += 1;
+      if (this.slideFrame >= SLIDE_FRAMES) this.slideFrame = -1;
     }
   }
 
   destroy(): void {
-    for (const slot of this.slots) slot.destroy({ children: true });
-    this.slots = [];
-    this.slotSprites = [];
+    for (const t of this.tracks) t.container.destroy({ children: true });
+    this.tracks = [];
     this.frame.destroy();
     this.container.destroy({ children: true });
   }
@@ -86,48 +140,90 @@ export class NextRenderer {
   private drawFrame(): void {
     const g = this.frame;
     g.clear();
-    g.rect(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT);
+    g.rect(PANEL_X, PANEL_Y, PANEL_WIDTH, this.panelHeight);
     g.fill(PANEL_BG);
-    g.rect(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT);
+    g.rect(PANEL_X, PANEL_Y, PANEL_WIDTH, this.panelHeight);
     g.stroke({ width: 2, color: FRAME_COLOR });
   }
 
-  private buildSlots(): void {
-    let y = PANEL_Y + 40;
+  private buildTracks(): void {
+    // 3 tracks share the same "slot 0" rendering size — the panel is
+    // narrow enough that scaling each one independently is overkill, and
+    // the visual hierarchy (top piece bigger) is preserved by which
+    // y-coordinate each track ends at, not by its cell size. Slot 1
+    // shrinks to SLOT1_CELL at rest via `layoutTracks`.
     for (let i = 0; i < 3; i++) {
-      const cell = CELL_SIZES[i] as number;
-      const pieceHeight = cell * 2;
-
       const slot = new Container();
-      slot.x =
-        i === 2
-          ? PANEL_X + PANEL_WIDTH - cell * PIECE3_VISIBLE_FRACTION
-          : PANEL_X + PANEL_WIDTH / 2;
-      slot.y = y + cell / 2;
-
-      // Use explicit scale from the known sheet cell size so that the
-      // scale stays correct across later texture swaps.
-      const renderScale = cell / SHEET_CELL;
-
+      slot.x = PANEL_X + PANEL_WIDTH / 2;
+      slot.y = this.slot0RestY;
       const axis = new Sprite();
       axis.anchor.set(0.5);
-      axis.scale.set(renderScale);
       axis.x = 0;
-      axis.y = 0;
       slot.addChild(axis);
-
       const child = new Sprite();
       child.anchor.set(0.5);
-      child.scale.set(renderScale);
       child.x = 0;
-      child.y = cell;
       slot.addChild(child);
-
-      this.slots.push(slot);
-      this.slotSprites.push({ axis, child });
+      this.tracks.push({ container: slot, axis, child, cell: SLOT0_CELL });
       this.container.addChild(slot);
-
-      y += pieceHeight + VERTICAL_GAP;
     }
   }
+
+  private paintTrack(i: number, pair: readonly [string, string] | undefined): void {
+    const track = this.tracks[i];
+    if (!track) return;
+    if (pair) {
+      track.axis.texture = this.sheet.get(pair[0] as 'R');
+      track.child.texture = this.sheet.get(pair[1] as 'R');
+      track.container.visible = true;
+    } else {
+      track.container.visible = false;
+    }
+  }
+
+  /**
+   * Position each track for a given slide progress `t` ∈ [0, 1].
+   *   t = 0  → at-rest layout (only tracks 1, 2 visible, in slot 0 and
+   *           slot 1 respectively).
+   *   t = 1  → fully shifted: track 0 off the top (faded), track 1 at
+   *           slot 0, track 2 at slot 1.
+   * Intermediate values interpolate linearly between those anchors.
+   */
+  private layoutTracks(t: number): void {
+    // Track 0 (outgoing): slot 0 → off-top, fading out.
+    const t0 = this.tracks[0];
+    if (t0) {
+      t0.container.y = this.slot0RestY + (this.offTopY - this.slot0RestY) * t;
+      t0.container.alpha = 1 - t;
+      this.applyCell(t0, SLOT0_CELL);
+    }
+    // Track 1 (moving-up): slot 1 → slot 0. Cell grows from SLOT1 → SLOT0.
+    const t1 = this.tracks[1];
+    if (t1) {
+      t1.container.y = this.slot1RestY + (this.slot0RestY - this.slot1RestY) * t;
+      t1.container.alpha = 1;
+      const cell = SLOT1_CELL + (SLOT0_CELL - SLOT1_CELL) * t;
+      this.applyCell(t1, cell);
+    }
+    // Track 2 (incoming): off-bottom → slot 1. Fades in.
+    const t2 = this.tracks[2];
+    if (t2) {
+      t2.container.y = this.offBottomY + (this.slot1RestY - this.offBottomY) * t;
+      t2.container.alpha = t;
+      this.applyCell(t2, SLOT1_CELL);
+    }
+  }
+
+  /** Set sprite scale + relative child offset for the given cell size. */
+  private applyCell(track: Track, cell: number): void {
+    const scale = cell / SHEET_CELL;
+    track.axis.scale.set(scale);
+    track.child.scale.set(scale);
+    track.child.y = cell;
+    track.cell = cell;
+  }
+}
+
+function easeInOutQuad(t: number): number {
+  return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
 }

@@ -13,19 +13,26 @@ import type { CellKind, PuyoColor } from '@chaindrop/shared';
 export const INTERNAL_WIDTH = 1280;
 export const INTERNAL_HEIGHT = 720;
 
-/** Main-field cell size in pixels. */
-export const CELL_SIZE = 40;
+/** Main-field cell size in pixels. Bumped from 40 → 48 (20% bigger). */
+export const CELL_SIZE = 48;
 /** Number of columns on the board. */
 export const FIELD_COLS = 6;
 /** Number of VISIBLE rows on the board. y=12..13 are never rendered. */
 export const VISIBLE_ROWS = 12;
 
-export const FIELD_PIXEL_WIDTH = CELL_SIZE * FIELD_COLS; // 240
-export const FIELD_PIXEL_HEIGHT = CELL_SIZE * VISIBLE_ROWS; // 480
+export const FIELD_PIXEL_WIDTH = CELL_SIZE * FIELD_COLS; // 288
+export const FIELD_PIXEL_HEIGHT = CELL_SIZE * VISIBLE_ROWS; // 576
 
-/** Top-left corner of the field in screen space (solo layout). */
-export const FIELD_ORIGIN_X = 520;
-export const FIELD_ORIGIN_Y = 120;
+/**
+ * Top-left corner of the field in screen space (solo layout).
+ *
+ * Picked so the bigger field fits comfortably in the 1280×720 internal
+ * stage without overlapping the HUD pinned to the top-right corner.
+ * Field right edge sits at 776, leaving ~210px on the right for the
+ * NEXT panel (see NextRenderer).
+ */
+export const FIELD_ORIGIN_X = 488;
+export const FIELD_ORIGIN_Y = 72;
 
 /** Per-puyo palette, matching D8 §3.3. */
 export const PUYO_COLORS: Record<PuyoColor | 'X', number> = {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { postOnlineMatch } from './api/records';
+import { DifficultyScene } from './scenes/DifficultyScene';
 import { LobbyScene } from './scenes/LobbyScene';
 import { MatchLobbyScene, type MatchStartPayload } from './scenes/MatchLobbyScene';
 import { type MatchResult, MatchScene } from './scenes/MatchScene';
@@ -9,11 +10,13 @@ import { ResultScene } from './scenes/ResultScene';
 import { TitleScene } from './scenes/TitleScene';
 import { loadAccount } from './state/account';
 import { applyColorModeDom } from './state/colorMode';
+import { type DifficultyLevel, fallIntervalFor, loadDifficulty } from './state/difficulty';
 import { appendOnlineHistory, loadRecords } from './state/records';
 import { loadSettings } from './state/settings';
 
 type SceneKind =
   | 'title'
+  | 'soloDifficulty'
   | 'match'
   | 'result'
   | 'lobby'
@@ -28,6 +31,8 @@ export function App() {
   const [matchRoomId, setMatchRoomId] = useState('');
   const [matchNickname, setMatchNickname] = useState('');
   const [networkedStart, setNetworkedStart] = useState<MatchStartPayload | null>(null);
+  /** Solo difficulty for the upcoming MatchScene. Picker writes this. */
+  const [soloDifficulty, setSoloDifficulty] = useState<DifficultyLevel>(() => loadDifficulty());
 
   // Apply persisted color mode on first paint so the user's previous
   // pick survives a reload. Settings volumes are applied lazily inside
@@ -36,7 +41,20 @@ export function App() {
     applyColorModeDom(loadSettings().colorMode);
   }, []);
 
+  /** Tapped from the title screen; jumps to the difficulty picker. */
   const startMatch = useCallback(() => {
+    setScene('soloDifficulty');
+  }, []);
+
+  /** Difficulty picker confirmed; spin up MatchScene with chosen pace. */
+  const confirmDifficulty = useCallback((level: DifficultyLevel) => {
+    setSoloDifficulty(level);
+    setMatchKey((k) => k + 1);
+    setScene('match');
+  }, []);
+
+  /** "Try again" from the result screen → re-use the same difficulty. */
+  const restartMatch = useCallback(() => {
     setMatchKey((k) => k + 1);
     setScene('match');
   }, []);
@@ -102,12 +120,21 @@ export function App() {
   switch (scene) {
     case 'title':
       return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
+    case 'soloDifficulty':
+      return <DifficultyScene onConfirm={confirmDifficulty} onBack={() => setScene('title')} />;
     case 'match':
-      return <MatchScene key={matchKey} onEnd={handleEnd} onQuit={handleQuit} />;
+      return (
+        <MatchScene
+          key={matchKey}
+          fallIntervalNormal={fallIntervalFor(soloDifficulty)}
+          onEnd={handleEnd}
+          onQuit={handleQuit}
+        />
+      );
     case 'result':
       if (!result)
         return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
-      return <ResultScene result={result} onRestart={startMatch} onTitle={handleQuit} />;
+      return <ResultScene result={result} onRestart={restartMatch} onTitle={handleQuit} />;
     case 'lobby':
       return <LobbyScene onJoinMatch={handleJoinMatch} onBack={() => setScene('title')} />;
     case 'matchLobby':
