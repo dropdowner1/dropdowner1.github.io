@@ -25,6 +25,8 @@ export interface MatchResult {
 interface Props {
   seed?: number;
   colorMode?: 4 | 5;
+  /** Frames per cell of natural gravity at match start. */
+  fallIntervalNormal?: number;
   onEnd: (result: MatchResult) => void;
   onQuit: () => void;
 }
@@ -36,7 +38,7 @@ interface SoloHud {
   cleared: number;
 }
 
-export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
+export function MatchScene({ seed, colorMode = 4, fallIntervalNormal, onEnd, onQuit }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hud, setHud] = useState<SoloHud>({ score: 0, chain: 0, maxChain: 0, cleared: 0 });
   const [paused, setPaused] = useState(false);
@@ -85,7 +87,11 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
     if (!canvas) return;
 
     const actualSeed = seed ?? Math.floor(Math.random() * 0xffffffff);
-    const source = new LocalMatchSource({ seed: actualSeed, colorMode });
+    const source = new LocalMatchSource({
+      seed: actualSeed,
+      colorMode,
+      ...(fallIntervalNormal !== undefined && { fallIntervalNormal }),
+    });
     const input = new InputSystem();
     input.attach(window);
 
@@ -219,7 +225,7 @@ export function MatchScene({ seed, colorMode = 4, onEnd, onQuit }: Props) {
       input.dispose();
       source.dispose();
     };
-  }, [seed, colorMode, togglePause]);
+  }, [seed, colorMode, fallIntervalNormal, togglePause]);
 
   return (
     <div className="scene match-scene">

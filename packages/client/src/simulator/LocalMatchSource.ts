@@ -23,6 +23,8 @@ export interface LocalMatchSourceOptions {
   colorMode: 4 | 5;
   playerId?: PlayerId;
   dropQueueLength?: number;
+  /** Starting frames-per-cell for natural gravity (difficulty picker). */
+  fallIntervalNormal?: number;
 }
 
 export class LocalMatchSource implements MatchSource {
@@ -41,6 +43,9 @@ export class LocalMatchSource implements MatchSource {
       colorMode: opts.colorMode,
       players,
       ...(opts.dropQueueLength !== undefined && { dropQueueLength: opts.dropQueueLength }),
+      ...(opts.fallIntervalNormal !== undefined && {
+        fallIntervalNormal: opts.fallIntervalNormal,
+      }),
     };
     this.match = createMatchState(config);
   }
