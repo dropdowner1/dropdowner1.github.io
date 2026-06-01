@@ -452,7 +452,22 @@ function handleFalling(
   }
 
   // 1. Inputs (order preserved; side effects on player.current and timers).
-  for (const action of actions) applyAction(player, action);
+  for (const action of actions) {
+    if (action === 'HARD_DROP') {
+      // Slam to the floor and lock in the same frame. Walks the piece
+      // down one cell at a time so the surface contour underneath
+      // stays respected — same path natural fall would take, just
+      // collapsed into a single frame.
+      while (player.current) {
+        const down = tryMove(player.board, player.current, 0, -1);
+        if (!down) break;
+        player.current = down;
+      }
+      onLock(match, player);
+      return;
+    }
+    applyAction(player, action);
+  }
 
   // 2. Gravity.
   const fallInterval = player.softDrop
@@ -509,6 +524,11 @@ function applyAction(player: PlayerState, action: InputAction): void {
     case 'SOFT_START':
       break;
     case 'SOFT_END':
+      break;
+    // HARD_DROP is intercepted in handleFalling — by the time we land in
+    // applyAction the piece is already locked, so this branch is just
+    // here for exhaustiveness.
+    case 'HARD_DROP':
       break;
   }
 }

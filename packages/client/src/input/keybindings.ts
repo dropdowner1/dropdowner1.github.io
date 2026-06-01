@@ -5,7 +5,14 @@
  * (a user on a Dvorak keyboard still binds the physical Z/X keys).
  */
 
-export type BindableAction = 'MOVE_L' | 'MOVE_R' | 'SOFT_DROP' | 'ROT_L' | 'ROT_R' | 'PAUSE';
+export type BindableAction =
+  | 'MOVE_L'
+  | 'MOVE_R'
+  | 'SOFT_DROP'
+  | 'HARD_DROP'
+  | 'ROT_L'
+  | 'ROT_R'
+  | 'PAUSE';
 
 export type Keybindings = Readonly<Record<BindableAction, string>>;
 
@@ -13,6 +20,7 @@ export const DEFAULT_KEYBINDINGS: Keybindings = {
   MOVE_L: 'ArrowLeft',
   MOVE_R: 'ArrowRight',
   SOFT_DROP: 'ArrowDown',
+  HARD_DROP: 'Space',
   ROT_L: 'KeyZ',
   ROT_R: 'KeyX',
   PAUSE: 'Escape',
