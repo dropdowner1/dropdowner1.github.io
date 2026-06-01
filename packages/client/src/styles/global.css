@@ -648,6 +648,22 @@ button {
   margin-top: 4px;
 }
 
+.vs-ojama {
+  font-family: var(--pixel-font-en);
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  margin-top: 4px;
+  padding: 2px 8px;
+  align-self: flex-start;
+  background: rgba(255, 80, 100, 0.18);
+  color: #ff8a98;
+  box-shadow: inset 0 0 0 1px rgba(255, 80, 100, 0.5);
+}
+
+.vs-overlay-right .vs-ojama {
+  align-self: flex-end;
+}
+
 .vs-status-banner {
   position: fixed;
   top: 50%;
@@ -678,6 +694,22 @@ button {
 
 .cleared-panel .panel-value {
   color: var(--snes-magenta);
+}
+
+/* -------------------------- Solo HUD: ojama warning chip ---------------- */
+
+.ojama-panel {
+  background: rgba(40, 6, 6, 0.92);
+  box-shadow: inset 0 0 0 2px rgba(255, 80, 100, 0.55), 0 0 0 2px var(--snes-bg-deep), 4px 4px 0 0
+    var(--snes-panel-shadow);
+}
+
+.ojama-panel .panel-label {
+  color: #ff8a98;
+}
+
+.ojama-panel .panel-value {
+  color: #ff5a6b;
 }
 
 /* -------------------------- Pause overlay ------------------------------- */
@@ -1555,4 +1587,154 @@ html[data-color-mode="high-contrast"] {
   gap: 12px;
   justify-content: center;
   margin-top: 8px;
+}
+
+/* ------------- How-to-play modal ------------- */
+
+.how-to-play {
+  width: min(640px, 100% - 48px);
+  margin: 4vh auto;
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+.how-to-play-title {
+  margin: 0;
+  text-align: center;
+  font-family: var(--pixel-font-jp);
+  font-size: 1.6rem;
+  color: var(--snes-accent);
+  letter-spacing: 0.12em;
+  text-shadow: 2px 2px 0 #050616;
+}
+
+.how-to-play-subtitle {
+  margin: 6px 0 8px;
+  font-family: var(--pixel-font-en);
+  font-size: 0.85rem;
+  color: var(--snes-cyan);
+  letter-spacing: 0.1em;
+}
+
+.how-to-play-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.how-to-play-list li {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 14px;
+  align-items: start;
+  padding: 10px 14px;
+  background: var(--snes-bg-deep);
+  box-shadow: inset 0 0 0 2px var(--snes-panel-edge);
+}
+
+.how-to-play-step {
+  font-family: var(--pixel-font-en);
+  font-size: 1.4rem;
+  color: var(--snes-accent);
+  text-align: center;
+}
+
+.how-to-play-headline {
+  margin: 0 0 4px;
+  font-family: var(--pixel-font-jp);
+  font-size: 1rem;
+  color: var(--snes-text);
+}
+
+.how-to-play-detail {
+  margin: 0;
+  font-family: var(--pixel-font-jp);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--snes-text-dim);
+}
+
+.how-to-play-controls {
+  padding: 10px 14px;
+  background: var(--snes-bg-deep);
+  box-shadow: inset 0 0 0 2px var(--snes-panel-edge);
+}
+
+.how-to-play-keys {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 18px;
+}
+
+.how-to-play-keys div {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.how-to-play-keys dt {
+  margin: 0;
+  font-family: var(--pixel-font-en);
+  font-size: 0.85rem;
+  color: var(--snes-cyan);
+  text-align: right;
+  letter-spacing: 0.04em;
+}
+
+.how-to-play-keys dd {
+  margin: 0;
+  font-family: var(--pixel-font-jp);
+  font-size: 0.85rem;
+  color: var(--snes-text);
+}
+
+.how-to-play-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+/* ------------- Leave-online confirm ------------- */
+
+.confirm-leave {
+  width: min(440px, 100% - 48px);
+  margin: 14vh auto;
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.confirm-leave-title {
+  margin: 0;
+  text-align: center;
+  font-family: var(--pixel-font-jp);
+  font-size: 1.2rem;
+  color: var(--snes-accent);
+  letter-spacing: 0.08em;
+  text-shadow: 2px 2px 0 #050616;
+}
+
+.confirm-leave-detail {
+  margin: 0;
+  text-align: center;
+  font-family: var(--pixel-font-jp);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--snes-text-dim);
+}
+
+.confirm-leave-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
 }
