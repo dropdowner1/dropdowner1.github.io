@@ -20,9 +20,11 @@ export type SeName =
   | 'piece-move'
   | 'piece-land'
   | 'piece-spawn'
+  | 'piece-slam'
   | 'chain-pop'
   | 'match-start'
-  | 'match-end';
+  | 'match-end'
+  | 'ojama-drop';
 
 const SE_DEFS: Record<SeName, { freq: number; durMs: number; type?: OscillatorType }> = {
   'ui-click': { freq: 880, durMs: 60, type: 'square' },
@@ -30,9 +32,15 @@ const SE_DEFS: Record<SeName, { freq: number; durMs: number; type?: OscillatorTy
   'piece-move': { freq: 440, durMs: 35, type: 'square' },
   'piece-land': { freq: 220, durMs: 110, type: 'triangle' },
   'piece-spawn': { freq: 520, durMs: 70, type: 'sine' },
+  // Hard-drop slam — punchier than piece-land so the player feels the
+  // commitment they just made.
+  'piece-slam': { freq: 150, durMs: 160, type: 'square' },
   'chain-pop': { freq: 1320, durMs: 180, type: 'square' },
   'match-start': { freq: 660, durMs: 220, type: 'square' },
   'match-end': { freq: 220, durMs: 320, type: 'triangle' },
+  // Heavy thud for incoming ojama — low + long so a wave of garbage
+  // reads viscerally.
+  'ojama-drop': { freq: 110, durMs: 260, type: 'triangle' },
 };
 
 /**
