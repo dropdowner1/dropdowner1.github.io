@@ -21,10 +21,19 @@ import type { MatchState } from '@chaindrop/shared';
 import { Container, Graphics, Sprite } from 'pixi.js';
 import type { PuyoSheet } from './PuyoTexture';
 import { SHEET_CELL } from './PuyoTexture';
+import { FIELD_ORIGIN_X, FIELD_PIXEL_WIDTH } from './layout';
 
-const PANEL_X = 808;
+/**
+ * Horizontal gap between the field and the NEXT panel. Same on both
+ * sides so a mirrored panel looks symmetric.
+ */
+const PANEL_GAP = 32;
 const PANEL_Y = 80;
 const PANEL_WIDTH = 130;
+/** Default (right-side) panel anchor — to the right of the field. */
+const PANEL_X_RIGHT = FIELD_ORIGIN_X + FIELD_PIXEL_WIDTH + PANEL_GAP;
+/** Mirrored anchor — to the left of the field. */
+const PANEL_X_LEFT = FIELD_ORIGIN_X - PANEL_GAP - PANEL_WIDTH;
 
 /** Cell size in slot 0 (top, full) and slot 1 (bottom, secondary). */
 const SLOT0_CELL = 44;
@@ -46,6 +55,16 @@ interface Track {
   cell: number;
 }
 
+export interface NextRendererOptions {
+  /**
+   * Where the panel sits relative to the field. Default is `right`
+   * (next to the field's right edge), used in solo and by the left
+   * player in 1v1. The right player in 1v1 uses `left` so its panel
+   * doesn't run off the edge of the 1280-wide internal stage.
+   */
+  side?: 'left' | 'right';
+}
+
 export class NextRenderer {
   readonly container: Container;
   private frame: Graphics;
@@ -59,11 +78,16 @@ export class NextRenderer {
   /** 0..SLIDE_FRAMES while slots are mid-shift; -1 when at rest. */
   private slideFrame = -1;
   private readonly panelHeight: number;
+  private readonly panelX: number;
 
-  constructor(private sheet: PuyoSheet) {
+  constructor(
+    private sheet: PuyoSheet,
+    options: NextRendererOptions = {},
+  ) {
     this.container = new Container();
     this.frame = new Graphics();
     this.container.addChild(this.frame);
+    this.panelX = options.side === 'left' ? PANEL_X_LEFT : PANEL_X_RIGHT;
 
     // Panel geometry.
     const total = SLOT0_CELL * 2 + VERTICAL_GAP + SLOT1_CELL * 2 + PANEL_TOP_PAD + PANEL_BOTTOM_PAD;
@@ -76,7 +100,7 @@ export class NextRenderer {
     // Clip everything outside the frame so sliding sprites don't bleed
     // into the HUD.
     const mask = new Graphics();
-    mask.rect(PANEL_X, PANEL_Y, PANEL_WIDTH, this.panelHeight);
+    mask.rect(this.panelX, PANEL_Y, PANEL_WIDTH, this.panelHeight);
     mask.fill(0xffffff);
     this.container.addChild(mask);
     this.container.mask = mask;
@@ -140,9 +164,9 @@ export class NextRenderer {
   private drawFrame(): void {
     const g = this.frame;
     g.clear();
-    g.rect(PANEL_X, PANEL_Y, PANEL_WIDTH, this.panelHeight);
+    g.rect(this.panelX, PANEL_Y, PANEL_WIDTH, this.panelHeight);
     g.fill(PANEL_BG);
-    g.rect(PANEL_X, PANEL_Y, PANEL_WIDTH, this.panelHeight);
+    g.rect(this.panelX, PANEL_Y, PANEL_WIDTH, this.panelHeight);
     g.stroke({ width: 2, color: FRAME_COLOR });
   }
 
@@ -154,7 +178,7 @@ export class NextRenderer {
     // shrinks to SLOT1_CELL at rest via `layoutTracks`.
     for (let i = 0; i < 3; i++) {
       const slot = new Container();
-      slot.x = PANEL_X + PANEL_WIDTH / 2;
+      slot.x = this.panelX + PANEL_WIDTH / 2;
       slot.y = this.slot0RestY;
       const axis = new Sprite();
       axis.anchor.set(0.5);
