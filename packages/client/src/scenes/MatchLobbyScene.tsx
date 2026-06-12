@@ -29,7 +29,10 @@ interface Props {
   onMatchStart: (payload: MatchStartPayload) => void;
 }
 
-type Phase = 'connecting' | 'lobby' | 'countdown' | 'running';
+type Phase = 'connecting' | 'lobby' | 'countdown' | 'running' | 'error';
+
+/** Seconds of waiting before we nudge the player that no one's coming. */
+const SEARCH_HINT_SECONDS = 60;
 
 export function MatchLobbyScene({
   roomId,
@@ -45,6 +48,10 @@ export function MatchLobbyScene({
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [countdownMs, setCountdownMs] = useState<number | null>(null);
+  /** Bumped by 再試行 to force the join effect to re-run. */
+  const [retryKey, setRetryKey] = useState(0);
+  /** Seconds the room has been waiting for opponents (drives the hint). */
+  const [waitSeconds, setWaitSeconds] = useState(0);
   const roomRef = useRef<MatchRoomHandle | null>(null);
   /** Set to true once we hand the room off to NetworkedMatchScene so
    *  the unmount cleanup doesn't `leave()` the room behind its back. */
@@ -66,6 +73,8 @@ export function MatchLobbyScene({
 
   useEffect(() => {
     let cancelled = false;
+    setError(null);
+    setPhase('connecting');
 
     (async () => {
       try {
@@ -79,6 +88,21 @@ export function MatchLobbyScene({
         }
         roomRef.current = room;
         setPhase('lobby');
+
+        // Socket drop while waiting (server redeploy, WiFi loss). Show
+        // an error + retry rather than leaving the player on a stale
+        // "接続中…" / roster that never updates.
+        room.onLeave(() => {
+          if (cancelled || handedOff.current) return;
+          roomRef.current = null;
+          setPhase('error');
+          setError('サーバとの接続が切れました');
+        });
+        room.onError(() => {
+          if (cancelled) return;
+          setPhase('error');
+          setError('通信エラーが発生しました');
+        });
 
         onMatchMessage(room, (msg) => {
           switch (msg.t) {
@@ -102,6 +126,10 @@ export function MatchLobbyScene({
               setCountdownMs(null);
               break;
             case 'MATCH_START': {
+              // Guard against a duplicate MATCH_START re-init'ing the
+              // match scene with a fresh payload mid-game.
+              if (handedOff.current) break;
+              handedOff.current = true;
               setPhase('running');
               setCountdownMs(null);
               // Acknowledge — the server doesn't currently gate on
@@ -109,7 +137,6 @@ export function MatchLobbyScene({
               room.send('MATCH_ACK', {});
               const nicknamesByPlayerId: Record<string, string> = {};
               for (const p of playersRef.current) nicknamesByPlayerId[p.playerId] = p.nickname;
-              handedOff.current = true;
               onMatchStart({
                 room,
                 myPlayerId: room.sessionId,
@@ -128,7 +155,10 @@ export function MatchLobbyScene({
         });
       } catch (err) {
         console.error(err);
-        if (!cancelled) setError('マッチに接続できませんでした');
+        if (!cancelled) {
+          setPhase('error');
+          setError('マッチに接続できませんでした');
+        }
       }
     })();
 
@@ -139,7 +169,28 @@ export function MatchLobbyScene({
         room.leave().catch(() => {});
       }
     };
-  }, [roomId, nickname, characterId, onMatchStart, colorMode]);
+  }, [roomId, nickname, characterId, onMatchStart, colorMode, retryKey]);
+
+  // Count how long we've been waiting for opponents so we can nudge the
+  // player that the room may be empty rather than silently stuck.
+  useEffect(() => {
+    if (phase !== 'lobby') {
+      setWaitSeconds(0);
+      return;
+    }
+    const started = Date.now();
+    const id = setInterval(() => {
+      setWaitSeconds(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [phase]);
+
+  const retry = useCallback(() => {
+    setError(null);
+    handedOff.current = false;
+    roomRef.current = null;
+    setRetryKey((k) => k + 1);
+  }, []);
 
   const toggleReady = useCallback(() => {
     const room = roomRef.current;
@@ -160,13 +211,35 @@ export function MatchLobbyScene({
 
       {phase === 'connecting' && <p>接続中…</p>}
 
-      {phase !== 'connecting' && (
+      {phase === 'error' && (
+        <div className="match-lobby-error-state">
+          <p className="lobby-error">{error ?? 'エラーが発生しました'}</p>
+          <div className="match-lobby-actions">
+            <button type="button" onClick={retry}>
+              再試行
+            </button>
+            <button type="button" onClick={() => void leave()}>
+              退出
+            </button>
+          </div>
+        </div>
+      )}
+
+      {phase !== 'connecting' && phase !== 'error' && (
         <>
           <p className="match-lobby-status">
             {players.length} / {capacity} 人 · {phase === 'lobby' && '全員 READY で開始'}
             {phase === 'countdown' && 'カウントダウン中…'}
             {phase === 'running' && 'マッチ進行中…'}
           </p>
+
+          {phase === 'lobby' && players.length < capacity && (
+            <p className="match-lobby-search">
+              対戦相手を待っています… {waitSeconds}秒
+              {waitSeconds >= SEARCH_HINT_SECONDS &&
+                ' — まだ見つかりません。退出して別のルームを試せます'}
+            </p>
+          )}
 
           <ul className="match-lobby-players">
             {Array.from({ length: capacity }, (_, slot) => {
@@ -207,7 +280,7 @@ export function MatchLobbyScene({
         </>
       )}
 
-      {error && <p className="lobby-error">{error}</p>}
+      {error && phase !== 'error' && <p className="lobby-error">{error}</p>}
     </div>
   );
 }
