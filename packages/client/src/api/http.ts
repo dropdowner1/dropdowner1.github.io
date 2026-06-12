@@ -35,6 +35,14 @@ function resolveBase(): string {
 
 const API_BASE = resolveBase();
 
+/**
+ * Hard ceiling on a single request. The Railway free tier cold-starts
+ * in up to ~30s, so we allow that much before giving up — but we DO
+ * give up, instead of leaving the UI on a spinner forever when the
+ * server is genuinely down.
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 export interface ApiError {
   status: number;
   code: string;
@@ -62,7 +70,28 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
     init.headers = { 'Content-Type': 'application/json' };
     init.body = JSON.stringify(body);
   }
-  const res = await fetch(`${API_BASE}${path}`, init);
+  // Abort the request if it outruns the timeout, and translate both the
+  // timeout and a raw network failure (offline, DNS, refused) into a
+  // typed HttpApiError so callers get a clean Japanese message instead
+  // of a raw TypeError or an indefinite hang.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  init.signal = controller.signal;
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, init);
+  } catch {
+    clearTimeout(timer);
+    if (controller.signal.aborted) {
+      throw new HttpApiError(
+        0,
+        'TIMEOUT',
+        'サーバの応答がありません。時間をおいて再度お試しください',
+      );
+    }
+    throw new HttpApiError(0, 'NETWORK', 'サーバに接続できませんでした');
+  }
+  clearTimeout(timer);
   if (res.status === 204) return undefined as unknown as T;
   const text = await res.text();
   const json = text ? safeJson(text) : undefined;

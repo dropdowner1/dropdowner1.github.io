@@ -41,6 +41,8 @@ export function LobbyScene({ onJoinMatch, onBack }: Props) {
   const [isPrivate, setIsPrivate] = useState(false);
   const roomRef = useRef<LobbyRoomHandle | null>(null);
   const handedOff = useRef(false);
+  /** Synchronous guard so two fast clicks can't both open a lobby room. */
+  const connectingRef = useRef(false);
 
   const cleanup = useCallback(async () => {
     const room = roomRef.current;
@@ -61,12 +63,32 @@ export function LobbyScene({ onJoinMatch, onBack }: Props) {
   }, [cleanup]);
 
   const connect = useCallback(async (): Promise<LobbyRoomHandle | null> => {
+    // Synchronous re-entry guard: `roomRef.current` is only set AFTER
+    // the await resolves, so two fast clicks could both start a
+    // joinOrCreate and leak a room. `connecting` latches immediately.
     if (roomRef.current) return roomRef.current;
+    if (connectingRef.current) return null;
+    connectingRef.current = true;
     setError(null);
     setBusy(true);
     try {
       const room = (await colyseus.joinOrCreate('lobby', {})) as LobbyRoomHandle;
       roomRef.current = room;
+      // Detect the socket dropping (server redeploy, WiFi loss). Without
+      // this the last LOBBY_STATE stays frozen on screen with the
+      // create/join buttons firing into a dead socket forever.
+      room.onLeave(() => {
+        if (handedOff.current) return;
+        roomRef.current = null;
+        setConnected(false);
+        setBusy(false);
+        setRooms([]);
+        setError('サーバとの接続が切れました。再試行してください');
+      });
+      room.onError(() => {
+        setError('通信エラーが発生しました。再試行してください');
+        setBusy(false);
+      });
       onLobbyMessage(room, (msg) => {
         switch (msg.t) {
           case 'LOBBY_JOINED':
@@ -78,10 +100,12 @@ export function LobbyScene({ onJoinMatch, onBack }: Props) {
           case 'ROOM_CREATED':
             // Immediately attempt to join the room we just made so
             // the host lands in the waiting room.
-            handedOff.current = false; // until we actually transition
             void joinMatchId(msg.roomId);
             break;
           case 'JOIN_ROOM_OK':
+            // Latch the handoff so a duplicate JOIN_ROOM_OK can't fire
+            // onJoinMatch twice (which would double-join the match room).
+            if (handedOff.current) break;
             handedOff.current = true;
             onJoinMatch(msg.matchRoomUrl, nickname);
             break;
@@ -97,9 +121,10 @@ export function LobbyScene({ onJoinMatch, onBack }: Props) {
       return room;
     } catch (err) {
       console.error(err);
-      setError('サーバに接続できませんでした');
+      setError('サーバに接続できませんでした。再試行してください');
       return null;
     } finally {
+      connectingRef.current = false;
       setBusy(false);
     }
   }, [nickname, onJoinMatch]);
@@ -143,6 +168,11 @@ export function LobbyScene({ onJoinMatch, onBack }: Props) {
     },
     [joinMatchId],
   );
+
+  const retry = useCallback(() => {
+    setError(null);
+    void connect();
+  }, [connect]);
 
   return (
     <div className="scene lobby-scene">
@@ -270,7 +300,14 @@ export function LobbyScene({ onJoinMatch, onBack }: Props) {
         </div>
       )}
 
-      {error && <p className="lobby-error">{error}</p>}
+      {error && (
+        <div className="lobby-error-row">
+          <p className="lobby-error">{error}</p>
+          <button type="button" className="lobby-retry" disabled={busy} onClick={retry}>
+            再試行
+          </button>
+        </div>
+      )}
     </div>
   );
 }

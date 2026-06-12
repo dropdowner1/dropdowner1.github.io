@@ -185,3 +185,37 @@ describe('FrameScheduler — real-time loop with FakeClock', () => {
     expect(winner).toBeNull();
   });
 });
+
+describe('FrameScheduler — stall detection (TO-5)', () => {
+  // A source that never produces a batch — simulates a network stall.
+  function stallingSource(): LocalMatchSource {
+    const source = new LocalMatchSource({ seed: 1, colorMode: 4 });
+    // Override getInputBatch to always report "not ready yet".
+    (source as unknown as { getInputBatch: () => null }).getInputBatch = () => null;
+    return source;
+  }
+
+  it('reports 0 stalled-ms while advancing normally', () => {
+    const source = new LocalMatchSource({ seed: 1, colorMode: 4 });
+    const clock = new FakeClock();
+    const sched = new FrameScheduler({ source, input: new ScriptedInput(), clock });
+    sched.start();
+    clock.tick(0);
+    clock.tick(FRAME_MS);
+    expect(sched.stalledForMs()).toBe(0);
+  });
+
+  it('accumulates stalled-ms when the batch never arrives', () => {
+    const source = stallingSource();
+    const clock = new FakeClock();
+    const sched = new FrameScheduler({ source, input: new ScriptedInput(), clock });
+    sched.start();
+    clock.tick(0); // first loop, establishes lastTs
+    clock.tick(FRAME_MS * 3); // tries to step, stalls — stall begins here
+    const first = sched.stalledForMs();
+    expect(first).toBeGreaterThanOrEqual(0);
+    clock.tick(1000); // a full second passes still stalled
+    expect(sched.stalledForMs()).toBeGreaterThanOrEqual(1000);
+    expect(sched.isStalled).toBe(true);
+  });
+});

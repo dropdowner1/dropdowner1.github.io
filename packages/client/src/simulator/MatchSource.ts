@@ -18,6 +18,15 @@ export interface InputBatch {
   [playerId: PlayerId]: readonly InputAction[];
 }
 
+/**
+ * Why a match ended. `normal` is a clean win/loss/draw; `desync` means
+ * a server-confirmed determinism mismatch (an invalid match that must
+ * not be recorded in win/loss stats). Solo always reports `normal`.
+ */
+export type MatchEndReason = 'normal' | 'desync';
+
+export type MatchEndHandler = (winnerId: PlayerId | null, reason: MatchEndReason) => void;
+
 export interface MatchSource {
   readonly myPlayerId: PlayerId;
   readonly match: MatchState;
@@ -33,7 +42,7 @@ export interface MatchSource {
   getInputBatch(frame: Frame): InputBatch | null;
 
   /** Called when the underlying match transitions to `finished`. */
-  onMatchEnd(fn: (winnerId: PlayerId | null) => void): void;
+  onMatchEnd(fn: MatchEndHandler): void;
 
   /** Release resources (network subs, buffers, etc.). Idempotent. */
   dispose(): void;

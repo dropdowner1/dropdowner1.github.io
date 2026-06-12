@@ -61,6 +61,13 @@ export class FrameScheduler {
   private running = false;
   /** True when we stalled on a missing input batch this loop tick. */
   private stalled = false;
+  /**
+   * Clock timestamp when the current continuous stall began, or 0 when
+   * not stalling. Lets a scene measure how long the sim has been frozen
+   * waiting on the network so it can warn / abort instead of spinning
+   * on the same frame forever.
+   */
+  private stallStartTs = 0;
 
   constructor(opts: FrameSchedulerOptions) {
     this.clock = opts.clock ?? DEFAULT_CLOCK;
@@ -89,6 +96,16 @@ export class FrameScheduler {
     return this.stalled;
   }
 
+  /**
+   * Milliseconds the sim has been continuously stalled on a missing
+   * network batch, or 0 if it's advancing normally. Drives the
+   * "通信が不安定です" warning + the eventual connection-lost bail-out.
+   */
+  stalledForMs(): number {
+    if (this.stallStartTs === 0) return 0;
+    return Math.max(0, this.clock.now() - this.stallStartTs);
+  }
+
   private loop(ts: number): void {
     if (!this.running) return;
 
@@ -105,8 +122,13 @@ export class FrameScheduler {
     while (this.accumulator >= FRAME_THRESHOLD) {
       if (!this.stepOnce()) {
         this.stalled = true;
+        // Mark the start of a continuous stall the first tick it
+        // happens; `stepOnce` success resets it back to 0.
+        if (this.stallStartTs === 0) this.stallStartTs = ts;
         break;
       }
+      this.stalled = false;
+      this.stallStartTs = 0;
       this.accumulator -= FRAME_MS;
     }
 

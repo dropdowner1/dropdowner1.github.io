@@ -90,21 +90,25 @@ export function App() {
 
   const handleNetworkedMatchEnd = useCallback(
     (r: NetworkedMatchResult) => {
-      // Resolve the opponent's nickname from the MatchStartPayload —
-      // in 1v1 there's exactly one other id in playerOrder.
-      const opponentId = networkedStart?.playerOrder.find((id) => id !== r.myPlayerId);
-      const opponentNickname =
-        (opponentId && networkedStart?.nicknamesByPlayerId[opponentId]) || '対戦相手';
-      const outcome: 'win' | 'loss' | 'draw' =
-        r.winnerId === null ? 'draw' : r.winnerId === r.myPlayerId ? 'win' : 'loss';
-      appendOnlineHistory(loadRecords(), {
-        at: new Date().toISOString(),
-        opponentNickname,
-        outcome,
-        selfScore: r.score,
-      });
-      // Push to the server too — silent on failure (guests etc).
-      void postOnlineMatch({ opponentName: opponentNickname, outcome, selfScore: r.score });
+      // A desync is an invalid match: show the result for context but
+      // DON'T pollute win/loss history with a bogus draw.
+      if (r.reason !== 'desync') {
+        // Resolve the opponent's nickname from the MatchStartPayload —
+        // in 1v1 there's exactly one other id in playerOrder.
+        const opponentId = networkedStart?.playerOrder.find((id) => id !== r.myPlayerId);
+        const opponentNickname =
+          (opponentId && networkedStart?.nicknamesByPlayerId[opponentId]) || '対戦相手';
+        const outcome: 'win' | 'loss' | 'draw' =
+          r.winnerId === null ? 'draw' : r.winnerId === r.myPlayerId ? 'win' : 'loss';
+        appendOnlineHistory(loadRecords(), {
+          at: new Date().toISOString(),
+          opponentNickname,
+          outcome,
+          selfScore: r.score,
+        });
+        // Push to the server too — silent on failure (guests etc).
+        void postOnlineMatch({ opponentName: opponentNickname, outcome, selfScore: r.score });
+      }
       setResult({ score: r.score, maxChain: r.maxChain, frame: r.frame });
       setNetworkedStart(null);
       setScene('result');
@@ -132,8 +136,12 @@ export function App() {
         />
       );
     case 'result':
-      if (!result)
+      if (!result) {
+        // Shouldn't happen — a transition to 'result' always sets one
+        // first. Warn so a races shows up in dev, and fall back safely.
+        console.warn('[App] result scene with no result; falling back to title');
         return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
+      }
       return <ResultScene result={result} onRestart={restartMatch} onTitle={handleQuit} />;
     case 'lobby':
       return <LobbyScene onJoinMatch={handleJoinMatch} onBack={() => setScene('title')} />;
@@ -149,8 +157,10 @@ export function App() {
     case 'rankings':
       return <RankingsScene onBack={() => setScene('title')} />;
     case 'networkedMatch':
-      if (!networkedStart)
+      if (!networkedStart) {
+        console.warn('[App] networkedMatch scene with no start payload; falling back to title');
         return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
+      }
       return (
         <NetworkedMatchScene
           room={networkedStart.room}

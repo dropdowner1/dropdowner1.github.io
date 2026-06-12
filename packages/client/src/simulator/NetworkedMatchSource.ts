@@ -31,7 +31,13 @@ import {
 } from '@chaindrop/shared';
 import type { Room } from 'colyseus.js';
 import { onMatchMessage } from '../network/colyseusClient';
-import type { Frame, InputBatch, MatchSource } from './MatchSource';
+import type {
+  Frame,
+  InputBatch,
+  MatchEndHandler,
+  MatchEndReason,
+  MatchSource,
+} from './MatchSource';
 
 export interface NetworkedMatchSourceOptions {
   room: Room<unknown>;
@@ -63,9 +69,11 @@ export class NetworkedMatchSource implements MatchSource {
   private readonly hashEveryFrames: number;
   private readonly room: Room<unknown>;
   private readonly pendingBatches = new Map<Frame, InputBatch>();
-  private readonly endHandlers: ((winnerId: PlayerId | null) => void)[] = [];
+  private readonly endHandlers: MatchEndHandler[] = [];
+  private readonly connectionLostHandlers: (() => void)[] = [];
   private disposed = false;
   private endFired = false;
+  private connectionLostFired = false;
 
   constructor(opts: NetworkedMatchSourceOptions) {
     this.room = opts.room;
@@ -89,6 +97,13 @@ export class NetworkedMatchSource implements MatchSource {
       this.pendingBatches.set(f, this.emptyBatch(opts.playerOrder));
     }
 
+    // The socket closing mid-match (WiFi drop, server redeploy, the
+    // process dying) is a connection loss — surface it so the scene can
+    // bail to a clear error instead of freezing on the last frame. We
+    // only treat it as a loss if the match hasn't already ended.
+    this.room.onLeave(() => this.fireConnectionLost());
+    this.room.onError(() => this.fireConnectionLost());
+
     onMatchMessage(this.room, (msg) => {
       if (this.disposed) return;
       switch (msg.t) {
@@ -99,12 +114,13 @@ export class NetworkedMatchSource implements MatchSource {
           break;
         }
         case 'MATCH_END':
-          this.fireEnd(msg.winnerId);
+          this.fireEnd(msg.winnerId, 'normal');
           break;
         case 'DESYNC_DETECTED':
-          // Treat a server-confirmed desync as a hard end of match;
-          // M3c will reroute this through a more graceful UI.
-          this.fireEnd(null);
+          // Server-confirmed desync — end the match but flag it so the
+          // UI shows a "通信エラー" result and the stats recorder skips
+          // it rather than logging a bogus draw.
+          this.fireEnd(null, 'desync');
           break;
         default:
           break;
@@ -139,14 +155,51 @@ export class NetworkedMatchSource implements MatchSource {
     return batch;
   }
 
-  onMatchEnd(fn: (winnerId: PlayerId | null) => void): void {
+  onMatchEnd(fn: MatchEndHandler): void {
     this.endHandlers.push(fn);
+  }
+
+  /** Fired once when the socket drops before a clean match end. */
+  onConnectionLost(fn: () => void): void {
+    this.connectionLostHandlers.push(fn);
+  }
+
+  /**
+   * Called by FrameScheduler after every `advanceFrame` (it duck-types
+   * this method, same as LocalMatchSource). Critical: a NORMAL win/loss
+   * makes the LOCAL simulator reach `status === 'finished'` from the
+   * deterministic input stream — the server does NOT separately emit
+   * MATCH_END for a clean top-out. Without firing here the board froze
+   * forever and the player had to reload. We fire the local result
+   * immediately; if a server-authoritative MATCH_END arrives too, the
+   * `endFired` latch makes it a no-op.
+   */
+  notifyIfEnded(): void {
+    if (this.endFired) return;
+    if (this.match.status !== 'finished') return;
+    this.fireEnd(this.match.winnerId, 'normal');
   }
 
   dispose(): void {
     this.disposed = true;
     this.pendingBatches.clear();
     this.endHandlers.length = 0;
+    this.connectionLostHandlers.length = 0;
+  }
+
+  /**
+   * Leave the owned room. Call this when the player exits the match
+   * (quit/forfeit) so the server frees the room and can award the
+   * opponent the forfeit win — the previous code never sent anything,
+   * leaving the room open until the socket timed out. Best-effort.
+   */
+  leaveRoom(): void {
+    try {
+      this.room.send('LEAVE_MATCH', {});
+    } catch {
+      /* socket may already be closed */
+    }
+    void this.room.leave().catch(() => {});
   }
 
   // ----------------------------------------------------------------
@@ -157,9 +210,18 @@ export class NetworkedMatchSource implements MatchSource {
     return out;
   }
 
-  private fireEnd(winnerId: PlayerId | null): void {
+  private fireEnd(winnerId: PlayerId | null, reason: MatchEndReason): void {
     if (this.endFired) return;
     this.endFired = true;
-    for (const fn of this.endHandlers) fn(winnerId);
+    for (const fn of this.endHandlers) fn(winnerId, reason);
+  }
+
+  private fireConnectionLost(): void {
+    // Don't report a connection loss if the match already ended
+    // cleanly — a normal finish leaves the room and that triggers
+    // onLeave too.
+    if (this.endFired || this.connectionLostFired || this.disposed) return;
+    this.connectionLostFired = true;
+    for (const fn of this.connectionLostHandlers) fn();
   }
 }

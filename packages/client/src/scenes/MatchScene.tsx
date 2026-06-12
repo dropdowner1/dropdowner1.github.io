@@ -69,7 +69,15 @@ export function MatchScene({ seed, colorMode = 4, fallIntervalNormal, onEnd, onQ
     setShowSettings(false);
     pausedRef.current = false;
     schedulerRef.current?.start();
-    void audioBus.ensureUnlocked().then(() => audioBus.startBgm());
+    // Re-read settings on resume so a BGM-volume change made in the
+    // pause menu's settings dialog takes effect; don't force BGM back
+    // on when the player has it muted (volume 0).
+    const settings = loadSettings();
+    audioBus.setBgmVolume(settings.bgmVolume);
+    audioBus.setSeVolume(settings.seVolume);
+    if (settings.bgmVolume > 0) {
+      void audioBus.ensureUnlocked().then(() => audioBus.startBgm());
+    }
   }, []);
 
   const pause = useCallback(() => {

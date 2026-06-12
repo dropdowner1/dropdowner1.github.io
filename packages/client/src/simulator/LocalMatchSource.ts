@@ -16,7 +16,7 @@ import {
   type PlayerInit,
   createMatchState,
 } from '@chaindrop/shared';
-import type { Frame, InputBatch, MatchSource } from './MatchSource';
+import type { Frame, InputBatch, MatchEndHandler, MatchSource } from './MatchSource';
 
 export interface LocalMatchSourceOptions {
   seed: number;
@@ -32,7 +32,7 @@ export class LocalMatchSource implements MatchSource {
   readonly match: MatchState;
 
   private buffer = new Map<Frame, readonly InputAction[]>();
-  private endHandlers: ((winnerId: PlayerId | null) => void)[] = [];
+  private endHandlers: MatchEndHandler[] = [];
   private endFired = false;
 
   constructor(opts: LocalMatchSourceOptions) {
@@ -61,20 +61,20 @@ export class LocalMatchSource implements MatchSource {
     return { [this.myPlayerId]: actions };
   }
 
-  onMatchEnd(fn: (winnerId: PlayerId | null) => void): void {
+  onMatchEnd(fn: MatchEndHandler): void {
     this.endHandlers.push(fn);
   }
 
   /**
    * Called by the scheduler after each `advanceFrame`. Fires the
    * end-of-match callback the first time the match status flips to
-   * `finished`.
+   * `finished`. Solo is always a `normal` end.
    */
   notifyIfEnded(): void {
     if (this.endFired) return;
     if (this.match.status !== 'finished') return;
     this.endFired = true;
-    for (const fn of this.endHandlers) fn(this.match.winnerId);
+    for (const fn of this.endHandlers) fn(this.match.winnerId, 'normal');
   }
 
   dispose(): void {
