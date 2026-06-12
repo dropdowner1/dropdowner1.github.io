@@ -2,6 +2,7 @@ import type { MatchState } from '@chaindrop/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { postSoloRun } from '../api/records';
 import { audioBus } from '../audio/AudioBus';
+import { createMatchAudio } from '../audio/MatchAudio';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { InputSystem } from '../input/InputSystem';
 import { FieldRenderer } from '../renderer/FieldRenderer';
@@ -36,11 +37,19 @@ interface SoloHud {
   chain: number;
   maxChain: number;
   cleared: number;
+  /** Unsent + unoffset garbage queued against the player. */
+  pendingOjama: number;
 }
 
 export function MatchScene({ seed, colorMode = 4, fallIntervalNormal, onEnd, onQuit }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [hud, setHud] = useState<SoloHud>({ score: 0, chain: 0, maxChain: 0, cleared: 0 });
+  const [hud, setHud] = useState<SoloHud>({
+    score: 0,
+    chain: 0,
+    maxChain: 0,
+    cleared: 0,
+    pendingOjama: 0,
+  });
   const [paused, setPaused] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -104,10 +113,7 @@ export function MatchScene({ seed, colorMode = 4, fallIntervalNormal, onEnd, onQ
     let sheet: PuyoSheet | null = null;
     let cancelled = false;
     let matchEnded = false;
-    /** Track previous frame state so we can fire SE on transitions
-     *  (rotation, lock, chain pop) instead of every render. */
-    let prevChain = 0;
-    let prevPhase = '';
+    const audio = createMatchAudio({ localPlayerId: source.myPlayerId });
 
     const onEscape = (e: KeyboardEvent) => {
       if (e.code !== 'Escape') return;
@@ -132,17 +138,13 @@ export function MatchScene({ seed, colorMode = 4, fallIntervalNormal, onEnd, onQ
         // Apply the saved color mode to the freshly-mounted stage.
         applyColorModeToApp(pixi.app, loadSettings().colorMode);
 
-        // Start BGM and the match-start SE the moment we're ready.
-        void audioBus.ensureUnlocked().then(() => {
-          audioBus.playSe('match-start');
-          audioBus.startBgm();
-        });
+        // Match-start stinger + BGM, idempotent.
+        void audio.start();
 
         source.onMatchEnd(() => {
           if (matchEnded) return;
           matchEnded = true;
-          audioBus.playSe('match-end');
-          audioBus.stopBgm();
+          audio.end();
           const p = source.match.players[0];
           const result: MatchResult = {
             score: p?.score ?? 0,
@@ -174,26 +176,21 @@ export function MatchScene({ seed, colorMode = 4, fallIntervalNormal, onEnd, onQ
           onFrameAdvanced: (match: MatchState) => {
             const p = match.players[0];
             if (!p) return;
-            // Chain pop SE: each tick the chainCount goes up while
-            // resolving — play the pop on every increment.
-            if (p.chainCount > prevChain) {
-              audioBus.playSe('chain-pop');
+            audio.onFrameAdvanced(match);
+            // Shake on incoming garbage. The drop event is per-player;
+            // solo has no opponent so this is mostly future-proofing —
+            // a self-targeted dropped count still applies.
+            for (const ev of match.events) {
+              if (ev.type === 'ojama_drop' && ev.playerId === p.id && ev.dropped > 0) {
+                renderer?.triggerShake(ev.dropped);
+              }
             }
-            prevChain = p.chainCount;
-            // Lock SE: phase flips into resolving / chigiri the frame
-            // after the piece settles.
-            if (prevPhase === 'falling' && (p.phase === 'resolving' || p.phase === 'chigiri')) {
-              audioBus.playSe('piece-land');
-            }
-            if (prevPhase !== 'falling' && p.phase === 'falling') {
-              audioBus.playSe('piece-spawn');
-            }
-            prevPhase = p.phase;
             setHud({
               score: p.score,
               chain: p.chainCount,
               maxChain: p.maxChain,
               cleared: p.cellsCleared,
+              pendingOjama: p.pendingGarbage,
             });
           },
           onRender: (match) => {
@@ -245,8 +242,16 @@ export function MatchScene({ seed, colorMode = 4, fallIntervalNormal, onEnd, onQ
           <div className="panel-label">CLEARED</div>
           <div className="panel-value">{hud.cleared.toLocaleString()}</div>
         </div>
+        {hud.pendingOjama > 0 && (
+          <div className="overlay-panel ojama-panel">
+            <div className="panel-label">OJAMA</div>
+            <div className="panel-value">{hud.pendingOjama}</div>
+          </div>
+        )}
       </div>
-      <div className="keyhint">←/→: 移動 Z/X: 回転 ↓: ソフトドロップ Esc: ポーズ</div>
+      <div className="keyhint">
+        ←/→: 移動　Z/X: 回転　↓: ソフトドロップ　Space: ハードドロップ　Esc: ポーズ
+      </div>
 
       {paused && (
         // biome-ignore lint/a11y/useSemanticElements: transient game overlay

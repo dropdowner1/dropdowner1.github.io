@@ -165,6 +165,15 @@ export class FieldRenderer {
   private pieceSprites = new Map<string, Sprite>();
   private pieceAnim: PieceAnim | null = null;
   private particles: Particle[] = [];
+  /**
+   * Remaining shake "energy" in pixels. Each frame the renderer
+   * applies a damped jitter to the sprite + burst layers, then decays
+   * the magnitude. Garbage drops bump this up so a wave of ojama
+   * lands with visible recoil.
+   */
+  private shakeMagnitude = 0;
+  /** Frames left in the current shake — caps the duration even if the magnitude is high. */
+  private shakeFrames = 0;
 
   constructor(private sheet: PuyoSheet) {
     this.container = new Container();
@@ -177,6 +186,20 @@ export class FieldRenderer {
     this.drawFrame();
   }
 
+  /**
+   * Trigger a shake. `count` is the number of incoming ojama cells —
+   * we map that to a small magnitude in pixels so a single line is a
+   * polite nudge and a 30-cell deluge rattles the frame.
+   */
+  triggerShake(count: number): void {
+    if (count <= 0) return;
+    const mag = Math.min(14, 2 + Math.sqrt(count) * 1.6);
+    if (mag > this.shakeMagnitude) {
+      this.shakeMagnitude = mag;
+      this.shakeFrames = Math.min(30, 8 + Math.floor(Math.sqrt(count) * 3));
+    }
+  }
+
   update(player: PlayerState): void {
     const specs = computeFieldSprites(player);
     this.updateBoardSprites(specs.filter((s) => s.kind === 'board'));
@@ -185,6 +208,32 @@ export class FieldRenderer {
       player,
     );
     this.tickParticles();
+    this.tickShake();
+  }
+
+  private tickShake(): void {
+    if (this.shakeFrames <= 0 || this.shakeMagnitude < 0.3) {
+      this.spriteLayer.x = 0;
+      this.spriteLayer.y = 0;
+      this.burstLayer.x = 0;
+      this.burstLayer.y = 0;
+      this.shakeMagnitude = 0;
+      this.shakeFrames = 0;
+      return;
+    }
+    // Pseudo-random per-frame offset — no Math.random in the hot path
+    // so deterministic replays stay deterministic; use a cheap LCG seed.
+    const t = (this.shakeFrames * 9301 + 49297) % 233280;
+    const r = t / 233280;
+    const angle = r * Math.PI * 2;
+    const dx = Math.cos(angle) * this.shakeMagnitude;
+    const dy = Math.sin(angle) * this.shakeMagnitude;
+    this.spriteLayer.x = dx;
+    this.spriteLayer.y = dy;
+    this.burstLayer.x = dx;
+    this.burstLayer.y = dy;
+    this.shakeMagnitude *= 0.82;
+    this.shakeFrames -= 1;
   }
 
   destroy(): void {

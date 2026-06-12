@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { audioBus } from '../audio/AudioBus';
 import { AccountDialog } from '../components/AccountDialog';
+import { HowToPlayDialog } from '../components/HowToPlayDialog';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { useSession } from '../state/SessionContext';
 import { type AccountIdentity, loadAccount, saveAccount } from '../state/account';
@@ -29,7 +30,7 @@ interface Props {
   onRankings: () => void;
 }
 
-type Modal = null | 'settings' | 'account';
+type Modal = null | 'settings' | 'account' | 'howToPlay';
 
 export function TitleScene({ onStart, onOnline, onRankings }: Props) {
   const [modal, setModal] = useState<Modal>(null);
@@ -119,6 +120,7 @@ export function TitleScene({ onStart, onOnline, onRankings }: Props) {
           <MenuButton label="ソロプレイ" onClick={() => handle(onStart)} primary />
           <MenuButton label="オンライン" onClick={() => handle(onOnline)} />
           <MenuButton label="ランキング・戦績" onClick={() => handle(onRankings)} />
+          <MenuButton label="遊び方" onClick={() => handle(() => setModal('howToPlay'))} />
           <MenuButton label="設定" onClick={() => handle(() => setModal('settings'))} />
         </div>
       </div>
@@ -141,6 +143,11 @@ export function TitleScene({ onStart, onOnline, onRankings }: Props) {
               setModal(null);
             }}
           />
+        </div>
+      )}
+      {modal === 'howToPlay' && (
+        <div className="pause-overlay">
+          <HowToPlayDialog onClose={() => setModal(null)} />
         </div>
       )}
     </div>

@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { HowToPlayDialog } from '../components/HowToPlayDialog';
 import type { MatchResult } from './MatchScene';
 
 interface Props {
@@ -8,7 +9,10 @@ interface Props {
 }
 
 export function ResultScene({ result, onRestart, onTitle }: Props) {
+  const [showHowTo, setShowHowTo] = useState(false);
+
   useEffect(() => {
+    if (showHowTo) return; // dialog owns Enter/Esc while open
     const onKey = (e: KeyboardEvent) => {
       if (e.code === 'Enter') {
         e.preventDefault();
@@ -20,7 +24,7 @@ export function ResultScene({ result, onRestart, onTitle }: Props) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onRestart, onTitle]);
+  }, [onRestart, onTitle, showHowTo]);
 
   const minutes = Math.floor(result.frame / 60 / 60);
   const seconds = Math.floor((result.frame / 60) % 60);
@@ -51,9 +55,17 @@ export function ResultScene({ result, onRestart, onTitle }: Props) {
           <button type="button" onClick={onTitle} className="result-btn secondary">
             BACK TO TITLE
           </button>
+          <button type="button" onClick={() => setShowHowTo(true)} className="result-btn secondary">
+            遊び方
+          </button>
         </div>
       </div>
       <div className="keyhint">Enter: もう一度 Esc: タイトルへ</div>
+      {showHowTo && (
+        <div className="pause-overlay">
+          <HowToPlayDialog onClose={() => setShowHowTo(false)} />
+        </div>
+      )}
     </div>
   );
 }

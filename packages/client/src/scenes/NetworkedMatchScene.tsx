@@ -14,6 +14,7 @@
 import type { MatchState, PlayerId, PuyoColor } from '@chaindrop/shared';
 import type { Room } from 'colyseus.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createMatchAudio } from '../audio/MatchAudio';
 import { InputSystem } from '../input/InputSystem';
 import { FieldRenderer } from '../renderer/FieldRenderer';
 import { NextRenderer } from '../renderer/NextRenderer';
@@ -49,6 +50,7 @@ interface PlayerHud {
   score: number;
   chain: number;
   maxChain: number;
+  pendingOjama: number;
 }
 
 interface Props {
@@ -78,11 +80,26 @@ export function NetworkedMatchScene({
   const [huds, setHuds] = useState<Record<PlayerId, PlayerHud>>(() => {
     const out: Record<PlayerId, PlayerHud> = {};
     for (const id of playerOrder) {
-      out[id] = { nickname: nicknamesByPlayerId[id] ?? id, score: 0, chain: 0, maxChain: 0 };
+      out[id] = {
+        nickname: nicknamesByPlayerId[id] ?? id,
+        score: 0,
+        chain: 0,
+        maxChain: 0,
+        pendingOjama: 0,
+      };
     }
     return out;
   });
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  /**
+   * Esc and the 退出 button open a confirmation overlay rather than
+   * tearing the match down immediately. The original "Esc = instant
+   * forfeit" mapping conflicted with the solo Esc=pause muscle memory
+   * and caused accidental losses.
+   */
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const confirmLeaveRef = useRef(false);
+  confirmLeaveRef.current = confirmLeave;
 
   const onEndRef = useRef(onEnd);
   const onQuitRef = useRef(onQuit);
@@ -95,7 +112,10 @@ export function NetworkedMatchScene({
   const opponentIndex = myIndex === 0 ? 1 : 0;
   const opponentId = playerOrder[opponentIndex];
 
-  const handleQuit = useCallback(() => {
+  const askLeave = useCallback(() => setConfirmLeave(true), []);
+  const cancelLeave = useCallback(() => setConfirmLeave(false), []);
+  const confirmLeaveNow = useCallback(() => {
+    setConfirmLeave(false);
     onQuitRef.current();
   }, []);
 
@@ -114,6 +134,7 @@ export function NetworkedMatchScene({
     const input = new InputSystem();
     input.attach(window);
     const pixi = new PixiApp({ canvas, autoFit: true });
+    const audio = createMatchAudio({ localPlayerId: myPlayerId });
 
     let cancelled = false;
     let scheduler: FrameScheduler | null = null;
@@ -127,7 +148,13 @@ export function NetworkedMatchScene({
     const onEscape = (e: KeyboardEvent) => {
       if (e.code !== 'Escape') return;
       e.preventDefault();
-      onQuitRef.current();
+      // Don't pile a second confirm on top of an open one — Esc inside
+      // the dialog should close the dialog (cancel), not re-fire.
+      if (confirmLeaveRef.current) {
+        setConfirmLeave(false);
+      } else {
+        setConfirmLeave(true);
+      }
     };
     window.addEventListener('keydown', onEscape);
 
@@ -147,15 +174,21 @@ export function NetworkedMatchScene({
         pixi.worldContainer.addChild(rightField.container);
 
         leftNext = new NextRenderer(loadedSheet);
-        rightNext = new NextRenderer(loadedSheet);
+        // Right player's NEXT mirrors to the LEFT of its field, so the
+        // panel doesn't run past the 1280-wide internal stage.
+        rightNext = new NextRenderer(loadedSheet, { side: 'left' });
         leftNext.container.x = LEFT_OFFSET;
         rightNext.container.x = RIGHT_OFFSET;
         pixi.worldContainer.addChild(leftNext.container);
         pixi.worldContainer.addChild(rightNext.container);
 
+        // Match-start stinger + BGM, idempotent.
+        void audio.start();
+
         source.onMatchEnd((winnerId) => {
           if (matchEnded) return;
           matchEnded = true;
+          audio.end();
           const mine = source.match.players.find((p) => p.id === myPlayerId);
           onEndRef.current({
             winnerId,
@@ -170,6 +203,16 @@ export function NetworkedMatchScene({
           source,
           input,
           onFrameAdvanced: (match: MatchState) => {
+            audio.onFrameAdvanced(match);
+            // Shake the field that's actually taking the hit. Local
+            // player's drops shake the left field; opponent's drops
+            // shake the right field. Tells the player at a glance
+            // which side just got slammed.
+            for (const ev of match.events) {
+              if (ev.type !== 'ojama_drop' || ev.dropped <= 0) continue;
+              if (ev.playerId === myPlayerId) leftField?.triggerShake(ev.dropped);
+              else if (ev.playerId === opponentId) rightField?.triggerShake(ev.dropped);
+            }
             const next: Record<PlayerId, PlayerHud> = {};
             for (const p of match.players) {
               next[p.id] = {
@@ -177,6 +220,7 @@ export function NetworkedMatchScene({
                 score: p.score,
                 chain: p.chainCount,
                 maxChain: p.maxChain,
+                pendingOjama: p.pendingGarbage,
               };
             }
             setHuds(next);
@@ -205,6 +249,7 @@ export function NetworkedMatchScene({
     return () => {
       cancelled = true;
       window.removeEventListener('keydown', onEscape);
+      audio.stop();
       scheduler?.dispose();
       leftField?.destroy();
       rightField?.destroy();
@@ -235,6 +280,7 @@ export function NetworkedMatchScene({
         <div className="vs-chain">
           CHAIN {me?.chain ?? 0} / {me?.maxChain ?? 0}
         </div>
+        {!!me?.pendingOjama && <div className="vs-ojama">OJAMA {me.pendingOjama}</div>}
       </div>
 
       <div className="vs-overlay vs-overlay-right">
@@ -243,13 +289,40 @@ export function NetworkedMatchScene({
         <div className="vs-chain">
           CHAIN {opp?.chain ?? 0} / {opp?.maxChain ?? 0}
         </div>
+        {!!opp?.pendingOjama && <div className="vs-ojama">OJAMA {opp.pendingOjama}</div>}
       </div>
 
       {statusMsg && <div className="vs-status-banner">{statusMsg}</div>}
-      <button type="button" className="vs-quit" onClick={handleQuit}>
+      <button type="button" className="vs-quit" onClick={askLeave}>
         退出
       </button>
-      <div className="keyhint">←/→: 移動 Z/X: 回転 ↓: ソフトドロップ Esc: 退出</div>
+      <div className="keyhint">
+        ←/→: 移動　Z/X: 回転　↓: ソフトドロップ　Space: ハードドロップ　Esc: 退出
+      </div>
+
+      {confirmLeave && (
+        // biome-ignore lint/a11y/useSemanticElements: transient game overlay
+        <div className="pause-overlay" role="dialog" aria-modal>
+          <div className="snes-window confirm-leave">
+            <h2 className="confirm-leave-title">対戦から退出しますか？</h2>
+            <p className="confirm-leave-detail">
+              退出すると相手の勝ちとして記録され、再接続はできません。
+            </p>
+            <div className="confirm-leave-actions">
+              <button type="button" className="pause-btn pause-btn-primary" onClick={cancelLeave}>
+                続ける
+              </button>
+              <button
+                type="button"
+                className="pause-btn pause-btn-secondary"
+                onClick={confirmLeaveNow}
+              >
+                退出する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
