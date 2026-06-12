@@ -22,7 +22,17 @@ import { PixiApp } from '../renderer/PixiApp';
 import { PuyoSheet } from '../renderer/PuyoTexture';
 import { FIELD_ORIGIN_X } from '../renderer/layout';
 import { FrameScheduler } from '../simulator/FrameScheduler';
+import type { MatchEndReason } from '../simulator/MatchSource';
 import { NetworkedMatchSource } from '../simulator/NetworkedMatchSource';
+
+/**
+ * How long the sim may sit stalled on a missing network batch before
+ * we warn the player, and before we give up and treat it as a lost
+ * connection. The server force-flushes partial frames every 200ms, so
+ * a multi-second stall means our own socket is the problem.
+ */
+const STALL_WARN_MS = 2_500;
+const STALL_LOST_MS = 10_000;
 
 /**
  * Where each player's field lands on the 1280-wide internal canvas.
@@ -43,6 +53,8 @@ export interface NetworkedMatchResult {
   frame: number;
   score: number;
   maxChain: number;
+  /** `desync` matches must not be recorded in win/loss stats. */
+  reason: MatchEndReason;
 }
 
 interface PlayerHud {
@@ -106,6 +118,11 @@ export function NetworkedMatchScene({
   onEndRef.current = onEnd;
   onQuitRef.current = onQuit;
 
+  /** Forfeit-and-exit. The effect wires this to the live source so the
+   *  room is actually left (server awards the opponent the win) before
+   *  we route back to the title. Set inside the effect. */
+  const leaveAndQuitRef = useRef<() => void>(() => onQuitRef.current());
+
   // Stable identity of who's left vs right, computed once so it
   // doesn't churn between renders.
   const myIndex = Math.max(0, playerOrder.indexOf(myPlayerId));
@@ -116,7 +133,7 @@ export function NetworkedMatchScene({
   const cancelLeave = useCallback(() => setConfirmLeave(false), []);
   const confirmLeaveNow = useCallback(() => {
     setConfirmLeave(false);
-    onQuitRef.current();
+    leaveAndQuitRef.current();
   }, []);
 
   useEffect(() => {
@@ -144,6 +161,33 @@ export function NetworkedMatchScene({
     let leftNext: NextRenderer | null = null;
     let rightNext: NextRenderer | null = null;
     let matchEnded = false;
+    let quitFired = false;
+    let stallWatchdog: ReturnType<typeof setInterval> | null = null;
+    let warnedStall = false;
+
+    // Single exit path back to the title. Leaves the room (so the
+    // server frees it + awards the opponent the forfeit) exactly once,
+    // no matter which trigger fired — quit button, connection loss, or
+    // init failure.
+    const quitOnce = () => {
+      if (quitFired) return;
+      quitFired = true;
+      audio.stop();
+      source.leaveRoom();
+      onQuitRef.current();
+    };
+    leaveAndQuitRef.current = quitOnce;
+
+    // The socket dropped before a clean finish (WiFi gone, server
+    // redeployed, opponent's process killed). Surface it and bail to
+    // the title instead of freezing on the last frame.
+    source.onConnectionLost(() => {
+      if (cancelled || matchEnded) return;
+      setStatusMsg('対戦相手との接続が切れました');
+      scheduler?.stop();
+      // Give the banner a beat to register before we route away.
+      setTimeout(() => quitOnce(), 1500);
+    });
 
     const onEscape = (e: KeyboardEvent) => {
       if (e.code !== 'Escape') return;
@@ -185,18 +229,31 @@ export function NetworkedMatchScene({
         // Match-start stinger + BGM, idempotent.
         void audio.start();
 
-        source.onMatchEnd((winnerId) => {
+        source.onMatchEnd((winnerId, reason) => {
           if (matchEnded) return;
           matchEnded = true;
           audio.end();
+          if (reason === 'desync') {
+            setStatusMsg('通信エラーで対戦を終了しました（無効試合）');
+          }
           const mine = source.match.players.find((p) => p.id === myPlayerId);
-          onEndRef.current({
+          const result: NetworkedMatchResult = {
             winnerId,
             myPlayerId,
             frame: source.match.frame,
             score: mine?.score ?? 0,
             maxChain: mine?.maxChain ?? 0,
-          });
+            reason,
+          };
+          // On a desync, let the banner show briefly before routing to
+          // the result screen; a normal finish transitions immediately.
+          if (reason === 'desync') {
+            setTimeout(() => {
+              if (!cancelled) onEndRef.current(result);
+            }, 1500);
+          } else {
+            onEndRef.current(result);
+          }
         });
 
         scheduler = new FrameScheduler({
@@ -237,18 +294,40 @@ export function NetworkedMatchScene({
         });
         scheduler.start();
         setStatusMsg(null);
+
+        // Stall watchdog: if the sim freezes on a missing batch for too
+        // long, warn the player, then treat a very long stall as a lost
+        // connection. The server force-flushes partial frames every
+        // 200ms, so a multi-second client-side stall means OUR socket
+        // is the problem — there's no recovery, only a graceful bail.
+        stallWatchdog = setInterval(() => {
+          if (cancelled || matchEnded || quitFired) return;
+          const stalled = scheduler?.stalledForMs() ?? 0;
+          if (stalled >= STALL_LOST_MS) {
+            setStatusMsg('対戦相手との接続が切れました');
+            scheduler?.stop();
+            setTimeout(() => quitOnce(), 1500);
+          } else if (stalled >= STALL_WARN_MS && !warnedStall) {
+            warnedStall = true;
+            setStatusMsg('通信が不安定です…');
+          } else if (stalled === 0 && warnedStall) {
+            warnedStall = false;
+            setStatusMsg(null);
+          }
+        }, 500);
       })
       .catch((err) => {
         console.error('[NetworkedMatchScene] init failed:', err);
         if (!cancelled) {
           setStatusMsg('対戦の初期化に失敗しました');
-          onQuitRef.current();
+          setTimeout(() => quitOnce(), 1500);
         }
       });
 
     return () => {
       cancelled = true;
       window.removeEventListener('keydown', onEscape);
+      if (stallWatchdog) clearInterval(stallWatchdog);
       audio.stop();
       scheduler?.dispose();
       leftField?.destroy();
@@ -258,6 +337,12 @@ export function NetworkedMatchScene({
       sheet?.destroy();
       pixi.destroy();
       input.dispose();
+      // Always leave the room on unmount so the server frees it
+      // instead of holding it open until the socket times out. After a
+      // clean local finish the server is still in `running` (it never
+      // saw a MATCH_END), so this leave also lets it tear the room
+      // down. leaveRoom is best-effort + safe to call post-finish.
+      source.leaveRoom();
       source.dispose();
     };
     // The Colyseus room handle, seed, and player roster are baked in

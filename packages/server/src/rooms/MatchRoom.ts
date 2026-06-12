@@ -72,6 +72,8 @@ export class MatchRoom extends Room<MatchRoomState> {
   private playerOrder: string[] = [];
   private inputRelay: InputRelay | undefined;
   private hashChecker: HashChecker | undefined;
+  /** Latches once a winner has been declared so MATCH_END fires once. */
+  private matchEnded = false;
 
   override onCreate(opts: MatchCreateOptions): void {
     // Empty Schema state — the room still needs SOMETHING to satisfy
@@ -134,6 +136,27 @@ export class MatchRoom extends Room<MatchRoomState> {
     if (this.status === 'countdown') {
       // Someone bailed mid-countdown — abort and rewind to lobby.
       this.cancelCountdown('PLAYER_LEFT');
+    }
+
+    // A leave DURING a running match is a forfeit: whoever is left
+    // standing wins. Without this the survivor's client froze on the
+    // last frame forever (the opponent's input batches simply stopped
+    // arriving and nothing declared an end). 1v1 is the only supported
+    // mode today, so "exactly one left" => that player wins; if the
+    // room empties entirely the match is abandoned with no winner.
+    if (this.status === 'running') {
+      const remaining = Array.from(this.players.values());
+      if (remaining.length === 1) {
+        this.declareWinner(remaining[0]?.playerId ?? null);
+        return;
+      }
+      if (remaining.length === 0) {
+        this.declareWinner(null);
+        this.status = 'lobby';
+        this.publishRemoval();
+        this.disconnect();
+        return;
+      }
     }
 
     if (this.players.size === 0) {
@@ -287,10 +310,7 @@ export class MatchRoom extends Room<MatchRoomState> {
     this.inputRelay = new InputRelay({
       playerOrder: this.playerOrder,
       onBatchReady: (frame, inputs) => this.broadcast('INPUT_BATCH', { frame, inputs }),
-      onPlayerTimeout: (playerId) =>
-        // Mark the player as eliminated for now; M3c will replace this
-        // with a proper disconnect/reconnect flow.
-        this.broadcast('PLAYER_DISCONNECTED', { playerId, atFrame: 0 }),
+      onPlayerTimeout: (playerId) => this.onPlayerTimeout(playerId),
     });
     this.hashChecker = new HashChecker({
       playerOrder: this.playerOrder,
@@ -319,6 +339,41 @@ export class MatchRoom extends Room<MatchRoomState> {
     }, MATCH_BEGIN_PADDING_MS);
 
     logger.info({ roomId: this.roomIdValue, seed: this.matchSeed }, 'match started');
+  }
+
+  /**
+   * A player missed `missThreshold` consecutive input frames — treat
+   * them as disconnected and award the match to whoever is left. The
+   * PLAYER_DISCONNECTED broadcast still goes out (banner fodder), but
+   * we now also resolve the match so the survivor isn't stuck.
+   */
+  private onPlayerTimeout(playerId: string): void {
+    this.broadcast('PLAYER_DISCONNECTED', { playerId, atFrame: 0 });
+    if (this.status !== 'running' || this.matchEnded) return;
+    const survivors = this.playerOrder.filter((id) => id !== playerId);
+    // 1v1: exactly one survivor wins. >2 players is future scope — only
+    // resolve when the timeout leaves a single standing player.
+    if (survivors.length === 1) {
+      this.declareWinner(survivors[0] ?? null);
+    }
+  }
+
+  /**
+   * Authoritatively end a running match. Broadcasts MATCH_END (clients
+   * fall through to the result screen) and tears down the lockstep
+   * machinery so no further batches/desyncs fire. Idempotent.
+   */
+  private declareWinner(winnerId: string | null): void {
+    if (this.matchEnded) return;
+    this.matchEnded = true;
+    this.status = 'finished';
+    this.broadcast('MATCH_END', { winnerId });
+    this.inputRelay?.dispose();
+    this.inputRelay = undefined;
+    this.hashChecker?.dispose();
+    this.hashChecker = undefined;
+    this.publishSummary();
+    logger.info({ roomId: this.roomIdValue, winnerId }, 'match ended (authoritative)');
   }
 
   private assignSlot(): number {
