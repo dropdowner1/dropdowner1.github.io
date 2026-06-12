@@ -10,7 +10,7 @@
  */
 
 import type { RecordsMeResponse, SoloBestEntry } from '@chaindrop/shared/protocol';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { fetchMyRecords, fetchSoloRankings } from '../api/records';
 import { useSession } from '../state/SessionContext';
 import { type Records, loadRecords } from '../state/records';
@@ -24,20 +24,32 @@ export function RankingsScene({ onBack }: Props) {
   const [records, setRecords] = useState<Records>(() => loadRecords());
   const [serverRecords, setServerRecords] = useState<RecordsMeResponse | null>(null);
   const [soloLeaderboard, setSoloLeaderboard] = useState<SoloBestEntry[] | null>(null);
+  /** True when a server fetch failed — distinguishes "empty" from
+   *  "couldn't reach the server" and lets the player retry. */
+  const [fetchError, setFetchError] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     setRecords(loadRecords());
+    setFetchError(false);
     void fetchSoloRankings()
       .then((res) => setSoloLeaderboard(res.rankings))
-      .catch(() => setSoloLeaderboard([]));
-    if (user) {
-      void fetchMyRecords().then((res) => {
-        if (res) setServerRecords(res);
+      .catch(() => {
+        setSoloLeaderboard([]);
+        setFetchError(true);
       });
+    if (user) {
+      void fetchMyRecords()
+        .then((res) => {
+          if (res) setServerRecords(res);
+        })
+        .catch(() => setFetchError(true));
     } else {
       setServerRecords(null);
     }
-  }, [user]);
+  }, [user, refreshKey]);
+
+  const reload = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   // Logged-in: server is the source of truth. Guest: local cache.
   const solo = serverRecords?.solo ?? {
@@ -65,6 +77,17 @@ export function RankingsScene({ onBack }: Props) {
           戻る
         </button>
       </div>
+
+      {fetchError && (
+        <div className="lobby-error-row">
+          <p className="lobby-error">
+            サーバから最新の記録を取得できませんでした（端末内の記録を表示中）
+          </p>
+          <button type="button" className="lobby-retry" onClick={reload}>
+            再読み込み
+          </button>
+        </div>
+      )}
 
       <section className="rankings-section snes-window">
         <h3 className="rankings-section-title">
@@ -114,6 +137,8 @@ export function RankingsScene({ onBack }: Props) {
         <h3 className="rankings-section-title">ソロ全体ランキング</h3>
         {soloLeaderboard === null ? (
           <p className="rankings-empty">取得中…</p>
+        ) : fetchError ? (
+          <p className="rankings-empty">ランキングを取得できませんでした</p>
         ) : soloLeaderboard.length === 0 ? (
           <p className="rankings-empty">まだ誰もスコアを残していません</p>
         ) : (

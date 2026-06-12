@@ -104,55 +104,72 @@ export function MatchLobbyScene({
           setError('通信エラーが発生しました');
         });
 
-        onMatchMessage(room, (msg) => {
-          switch (msg.t) {
-            case 'MATCH_ROOM_STATE': {
-              const sorted = [...msg.players].sort((a, b) => a.slotIndex - b.slotIndex);
-              setPlayers(sorted);
-              playersRef.current = sorted;
-              setCapacity(msg.config.capacity);
-              setColorMode(msg.config.colorMode);
-              if (msg.status === 'lobby') setPhase('lobby');
-              if (msg.status === 'countdown') setPhase('countdown');
-              if (msg.status === 'running') setPhase('running');
-              break;
+        let droppedCount = 0;
+        onMatchMessage(
+          room,
+          (msg) => {
+            switch (msg.t) {
+              case 'MATCH_ROOM_STATE': {
+                const sorted = [...msg.players].sort((a, b) => a.slotIndex - b.slotIndex);
+                setPlayers(sorted);
+                playersRef.current = sorted;
+                setCapacity(msg.config.capacity);
+                setColorMode(msg.config.colorMode);
+                if (msg.status === 'lobby') setPhase('lobby');
+                if (msg.status === 'countdown') setPhase('countdown');
+                if (msg.status === 'running') setPhase('running');
+                break;
+              }
+              case 'COUNTDOWN_START':
+                setPhase('countdown');
+                setCountdownMs(Date.now() + (msg.durationFrames / 60) * 1000);
+                break;
+              case 'COUNTDOWN_CANCEL':
+                setPhase('lobby');
+                setCountdownMs(null);
+                break;
+              case 'MATCH_START': {
+                // Guard against a duplicate MATCH_START re-init'ing the
+                // match scene with a fresh payload mid-game.
+                if (handedOff.current) break;
+                handedOff.current = true;
+                setPhase('running');
+                setCountdownMs(null);
+                // Acknowledge — the server doesn't currently gate on
+                // this, but it'll matter for M3c reconnect flows.
+                room.send('MATCH_ACK', {});
+                const nicknamesByPlayerId: Record<string, string> = {};
+                for (const p of playersRef.current) nicknamesByPlayerId[p.playerId] = p.nickname;
+                onMatchStart({
+                  room,
+                  myPlayerId: room.sessionId,
+                  playerOrder: [...msg.playerOrder],
+                  seed: msg.seed,
+                  colorMode,
+                  dropQueue: msg.dropQueue,
+                  nicknamesByPlayerId,
+                });
+                break;
+              }
+              case 'ERROR':
+                setError(`${msg.code}: ${msg.message}`);
+                break;
             }
-            case 'COUNTDOWN_START':
-              setPhase('countdown');
-              setCountdownMs(Date.now() + (msg.durationFrames / 60) * 1000);
-              break;
-            case 'COUNTDOWN_CANCEL':
-              setPhase('lobby');
-              setCountdownMs(null);
-              break;
-            case 'MATCH_START': {
-              // Guard against a duplicate MATCH_START re-init'ing the
-              // match scene with a fresh payload mid-game.
-              if (handedOff.current) break;
-              handedOff.current = true;
-              setPhase('running');
-              setCountdownMs(null);
-              // Acknowledge — the server doesn't currently gate on
-              // this, but it'll matter for M3c reconnect flows.
-              room.send('MATCH_ACK', {});
-              const nicknamesByPlayerId: Record<string, string> = {};
-              for (const p of playersRef.current) nicknamesByPlayerId[p.playerId] = p.nickname;
-              onMatchStart({
-                room,
-                myPlayerId: room.sessionId,
-                playerOrder: [...msg.playerOrder],
-                seed: msg.seed,
-                colorMode,
-                dropQueue: msg.dropQueue,
-                nicknamesByPlayerId,
-              });
-              break;
-            }
-            case 'ERROR':
-              setError(`${msg.code}: ${msg.message}`);
-              break;
-          }
-        });
+          },
+          {
+            // A burst of dropped messages means the server and client
+            // protocols disagree (mid-deploy version skew). That would
+            // otherwise look like a silent hang — surface it so the
+            // player reloads instead of waiting forever.
+            onDropped: () => {
+              droppedCount += 1;
+              if (droppedCount >= 5 && !cancelled && !handedOff.current) {
+                setPhase('error');
+                setError('通信エラーが発生しました。ページを再読み込みしてください');
+              }
+            },
+          },
+        );
       } catch (err) {
         console.error(err);
         if (!cancelled) {
