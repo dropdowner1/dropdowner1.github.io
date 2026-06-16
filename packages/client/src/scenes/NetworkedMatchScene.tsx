@@ -202,6 +202,16 @@ export function NetworkedMatchScene({
     };
     window.addEventListener('keydown', onEscape);
 
+    // Warn before a refresh / tab-close mid-match so the player doesn't
+    // accidentally abandon a live game (which forfeits it). The browser
+    // shows its own generic confirm when returnValue is set.
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (matchEnded || quitFired) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+
     Promise.all([pixi.init(), PuyoSheet.load(ASSET_BASE)])
       .then(([_, loadedSheet]) => {
         if (cancelled) {
@@ -327,6 +337,7 @@ export function NetworkedMatchScene({
     return () => {
       cancelled = true;
       window.removeEventListener('keydown', onEscape);
+      window.removeEventListener('beforeunload', onBeforeUnload);
       if (stallWatchdog) clearInterval(stallWatchdog);
       audio.stop();
       scheduler?.dispose();

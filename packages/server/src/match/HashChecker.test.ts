@@ -46,4 +46,30 @@ describe('HashChecker', () => {
     // Mismatch should fire on the (A, B) pair alone — C never counted.
     expect(calls).toBe(1);
   });
+
+  it('detects a desync EARLY without waiting for the third player', () => {
+    // A desynced peer can crash and never send its hash. With the old
+    // "wait for everyone" logic the mismatch was never reported and the
+    // match hung. Two conflicting hashes are enough to know.
+    const events: Array<{ frame: number }> = [];
+    const c = new HashChecker({
+      playerOrder: ['A', 'B', 'C'],
+      onMismatch: (frame) => events.push({ frame }),
+    });
+    c.submit('A', 7, 'x');
+    c.submit('B', 7, 'y'); // disagrees with A — fire now, C never reports
+    expect(events).toEqual([{ frame: 7 }]);
+  });
+
+  it('does not double-fire if more hashes arrive for an already-flagged frame', () => {
+    let calls = 0;
+    const c = new HashChecker({
+      playerOrder: ['A', 'B', 'C'],
+      onMismatch: () => calls++,
+    });
+    c.submit('A', 1, 'x');
+    c.submit('B', 1, 'y'); // fires
+    c.submit('C', 1, 'z'); // late arrival for an already-flagged frame
+    expect(calls).toBe(1);
+  });
 });

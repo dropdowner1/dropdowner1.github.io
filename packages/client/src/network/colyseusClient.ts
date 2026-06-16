@@ -78,7 +78,22 @@ export function onLobbyMessage(room: LobbyRoomHandle, handler: (msg: LobbyS2C) =
   }
 }
 
-export function onMatchMessage(room: MatchRoomHandle, handler: (msg: MatchS2C) => void): void {
+export interface MatchMessageOptions {
+  /**
+   * Called when a server message fails validation and is dropped. A
+   * burst of these usually means the deployed server and client speak
+   * different protocol versions (e.g. mid-deploy), which otherwise
+   * looks like a silent hang — the scene can surface a "再読み込みして
+   * ください" hint instead.
+   */
+  onDropped?: (type: MatchS2C['t']) => void;
+}
+
+export function onMatchMessage(
+  room: MatchRoomHandle,
+  handler: (msg: MatchS2C) => void,
+  options: MatchMessageOptions = {},
+): void {
   const types: MatchS2C['t'][] = [
     'MATCH_ROOM_STATE',
     'COUNTDOWN_START',
@@ -102,6 +117,7 @@ export function onMatchMessage(room: MatchRoomHandle, handler: (msg: MatchS2C) =
       });
       if (!parsed.success) {
         console.warn('[match] dropped malformed', t, parsed.error.issues);
+        options.onDropped?.(t);
         return;
       }
       handler(parsed.data);
