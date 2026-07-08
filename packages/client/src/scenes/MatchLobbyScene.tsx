@@ -135,9 +135,10 @@ export function MatchLobbyScene({
                 handedOff.current = true;
                 setPhase('running');
                 setCountdownMs(null);
-                // Acknowledge — the server doesn't currently gate on
-                // this, but it'll matter for M3c reconnect flows.
-                room.send('MATCH_ACK', {});
+                // NOTE: readiness is ACKed by NetworkedMatchScene AFTER
+                // it finishes loading (assets + renderers) — the server
+                // holds MATCH_BEGIN until both sides ACK so they start
+                // ticking together. Don't ACK here (before loading).
                 const nicknamesByPlayerId: Record<string, string> = {};
                 for (const p of playersRef.current) nicknamesByPlayerId[p.playerId] = p.nickname;
                 onMatchStart({
