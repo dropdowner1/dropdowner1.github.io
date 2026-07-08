@@ -41,9 +41,14 @@ jobs:
       - name: Build client
         run: pnpm -F @chaindrop/client build
         env:
-          # Public Railway URL — not secret, baked into the static
-          # bundle as VITE_API_URL. Update this if the service moves.
+          # Public Railway URLs — not secret, baked into the static
+          # bundle. Update both if the service moves.
+          #   VITE_API_URL    — HTTP API (login, records, rankings)
+          #   VITE_SERVER_URL — Colyseus WebSocket (lobby, online match).
+          # The WS one is REQUIRED for multiplayer; without it the client
+          # falls back to localhost and every match fails to connect.
           VITE_API_URL: https://chaindrop-server-production.up.railway.app
+          VITE_SERVER_URL: wss://chaindrop-server-production.up.railway.app
 
       - uses: actions/configure-pages@v5
 
