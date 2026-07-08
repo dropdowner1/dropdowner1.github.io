@@ -58,7 +58,18 @@ export interface NetworkedMatchSourceOptions {
   hashEveryFrames?: number;
 }
 
-const DEFAULT_INPUT_DELAY = 4;
+/**
+ * Frames of input lookahead. Every keystroke applies this many frames
+ * later, which is the budget that hides the network round-trip: the
+ * lockstep never stalls as long as `inputDelay * 16.67ms >= RTT`.
+ *
+ * 10 frames ≈ 166ms covers a Singapore-region server round-trip from
+ * Japan (~70-120ms) with jitter headroom. It was 4 (66ms), which was
+ * far too small even for a nearby server — the sim stalled every frame
+ * waiting for the opponent's batch and the server's 200ms force-flush
+ * dropped the late input, which is why controls froze mid-match.
+ */
+const DEFAULT_INPUT_DELAY = 10;
 const DEFAULT_HASH_INTERVAL = 60;
 
 export class NetworkedMatchSource implements MatchSource {
@@ -71,9 +82,12 @@ export class NetworkedMatchSource implements MatchSource {
   private readonly pendingBatches = new Map<Frame, InputBatch>();
   private readonly endHandlers: MatchEndHandler[] = [];
   private readonly connectionLostHandlers: (() => void)[] = [];
+  private readonly beginHandlers: (() => void)[] = [];
   private disposed = false;
   private endFired = false;
   private connectionLostFired = false;
+  /** True once the server's synchronized MATCH_BEGIN has arrived. */
+  private begun = false;
 
   constructor(opts: NetworkedMatchSourceOptions) {
     this.room = opts.room;
@@ -107,6 +121,19 @@ export class NetworkedMatchSource implements MatchSource {
     onMatchMessage(this.room, (msg) => {
       if (this.disposed) return;
       switch (msg.t) {
+        case 'MATCH_BEGIN':
+          // The server's synchronized start signal — both clients get it
+          // at (roughly) the same wall-clock, so gating the sim start on
+          // it keeps neither client racing ahead of the other. Without
+          // this, each side started ticking whenever its own asset load
+          // finished, so one could be seconds ahead and the lockstep
+          // stuttered badly at the opening.
+          if (!this.begun) {
+            this.begun = true;
+            for (const fn of this.beginHandlers) fn();
+            this.beginHandlers.length = 0;
+          }
+          break;
         case 'INPUT_BATCH': {
           // The wire shape is Record<PlayerId, InputAction[]>; the
           // simulator accepts the same shape directly.
@@ -164,6 +191,21 @@ export class NetworkedMatchSource implements MatchSource {
     this.connectionLostHandlers.push(fn);
   }
 
+  /** True once the server's synchronized MATCH_BEGIN has been received. */
+  get hasBegun(): boolean {
+    return this.begun;
+  }
+
+  /**
+   * Run `fn` when the synchronized MATCH_BEGIN arrives (immediately if
+   * it already has). The scene uses this to gate the first tick so both
+   * clients start together.
+   */
+  onBegin(fn: () => void): void {
+    if (this.begun) fn();
+    else this.beginHandlers.push(fn);
+  }
+
   /**
    * Called by FrameScheduler after every `advanceFrame` (it duck-types
    * this method, same as LocalMatchSource). Critical: a NORMAL win/loss
@@ -185,6 +227,7 @@ export class NetworkedMatchSource implements MatchSource {
     this.pendingBatches.clear();
     this.endHandlers.length = 0;
     this.connectionLostHandlers.length = 0;
+    this.beginHandlers.length = 0;
   }
 
   /**

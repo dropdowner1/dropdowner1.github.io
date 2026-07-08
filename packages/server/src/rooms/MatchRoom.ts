@@ -42,10 +42,12 @@ export interface MatchJoinOptions {
 const COUNTDOWN_FRAMES = 180;
 const COUNTDOWN_MS = 3_000; // 3 seconds, matches D2 §1.4 / D4 §3.2
 const DROP_QUEUE_LENGTH = 1024;
-// Slight latency buffer so every client has the MATCH_START message in
-// hand before they're asked to start ticking. Tuned to comfortably
-// cover an inter-region websocket round-trip.
-const MATCH_BEGIN_PADDING_MS = 200;
+// MATCH_BEGIN is held until every client has ACKed that it finished
+// loading (assets + renderers), so both start ticking at the same
+// wall-clock moment instead of whenever each one's load happens to
+// finish. This fallback fires MATCH_BEGIN anyway if an ACK never
+// arrives (a client that crashed during load) so the match can't hang.
+const MATCH_BEGIN_ACK_FALLBACK_MS = 8_000;
 
 type Status = 'lobby' | 'countdown' | 'running' | 'finished';
 
@@ -74,6 +76,11 @@ export class MatchRoom extends Room<MatchRoomState> {
   private hashChecker: HashChecker | undefined;
   /** Latches once a winner has been declared so MATCH_END fires once. */
   private matchEnded = false;
+  /** Session ids that have ACKed readiness for the current match start. */
+  private ackedPlayers = new Set<string>();
+  /** Latches once MATCH_BEGIN has gone out so it fires exactly once. */
+  private matchBegun = false;
+  private matchBeginHandle: ReturnType<Room['clock']['setTimeout']> | undefined;
 
   override onCreate(opts: MatchCreateOptions): void {
     // Empty Schema state — the room still needs SOMETHING to satisfy
@@ -228,8 +235,9 @@ export class MatchRoom extends Room<MatchRoomState> {
         this.onSetReady(client, msg.ready);
         return;
       case 'MATCH_ACK':
-        // Could be used to gate MATCH_BEGIN — currently the server
-        // fires MATCH_BEGIN on a fixed timer, so this is a no-op.
+        // "I've finished loading and I'm ready to tick." Once every
+        // player has ACKed we release MATCH_BEGIN so both start together.
+        this.onMatchAck(client);
         return;
       case 'INPUT':
         this.inputRelay?.submit(client.sessionId, msg.frame, msg.actions);
@@ -321,6 +329,8 @@ export class MatchRoom extends Room<MatchRoomState> {
     });
 
     this.status = 'running';
+    this.ackedPlayers.clear();
+    this.matchBegun = false;
     this.broadcastRoomState();
     this.publishSummary();
 
@@ -328,17 +338,40 @@ export class MatchRoom extends Room<MatchRoomState> {
       seed: this.matchSeed,
       dropQueue: this.dropQueue,
       playerOrder: this.playerOrder,
-      startFrameMs: Date.now() + MATCH_BEGIN_PADDING_MS,
+      startFrameMs: Date.now(),
     });
 
-    // MATCH_BEGIN is the simulator-tick trigger; we send it once the
-    // pad has elapsed so every client has had time to receive
-    // MATCH_START and prime its scheduler.
-    this.clock.setTimeout(() => {
-      this.broadcast('MATCH_BEGIN', {});
-    }, MATCH_BEGIN_PADDING_MS);
+    // MATCH_BEGIN (the tick trigger) is held until every client ACKs
+    // that it finished loading — see onMatchAck. The fallback guards
+    // against an ACK that never comes (a client that died during load).
+    this.matchBeginHandle = this.clock.setTimeout(
+      () => this.sendMatchBegin(),
+      MATCH_BEGIN_ACK_FALLBACK_MS,
+    );
 
     logger.info({ roomId: this.roomIdValue, seed: this.matchSeed }, 'match started');
+  }
+
+  /** A client finished loading and is ready to tick. */
+  private onMatchAck(client: Client): void {
+    if (this.status !== 'running' || this.matchBegun) return;
+    if (!this.players.has(client.sessionId)) return;
+    this.ackedPlayers.add(client.sessionId);
+    // Everyone still in the match has ACKed → release the start.
+    const expected = this.playerOrder.filter((id) => this.players.has(id));
+    if (expected.length > 0 && expected.every((id) => this.ackedPlayers.has(id))) {
+      this.sendMatchBegin();
+    }
+  }
+
+  /** Broadcast the synchronized MATCH_BEGIN exactly once. */
+  private sendMatchBegin(): void {
+    if (this.matchBegun) return;
+    this.matchBegun = true;
+    this.matchBeginHandle?.clear();
+    this.matchBeginHandle = undefined;
+    this.broadcast('MATCH_BEGIN', {});
+    logger.info({ roomId: this.roomIdValue }, 'match begin (all ready)');
   }
 
   /**

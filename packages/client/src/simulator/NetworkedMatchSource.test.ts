@@ -150,3 +150,96 @@ describe('NetworkedMatchSource connection loss', () => {
     expect(fake.room.leave).toHaveBeenCalled();
   });
 });
+
+describe('NetworkedMatchSource MATCH_BEGIN sync', () => {
+  it('starts un-begun and flips hasBegun on MATCH_BEGIN', () => {
+    const fake = makeFakeRoom();
+    const source = makeSource(fake.room);
+    expect(source.hasBegun).toBe(false);
+    fake.dispatch('MATCH_BEGIN', {});
+    expect(source.hasBegun).toBe(true);
+  });
+
+  it('fires an onBegin handler registered BEFORE MATCH_BEGIN arrives', () => {
+    const fake = makeFakeRoom();
+    const source = makeSource(fake.room);
+    const begin = vi.fn();
+    source.onBegin(begin);
+    expect(begin).not.toHaveBeenCalled();
+    fake.dispatch('MATCH_BEGIN', {});
+    expect(begin).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs an onBegin handler immediately if MATCH_BEGIN already arrived', () => {
+    const fake = makeFakeRoom();
+    const source = makeSource(fake.room);
+    fake.dispatch('MATCH_BEGIN', {});
+    const begin = vi.fn();
+    source.onBegin(begin);
+    expect(begin).toHaveBeenCalledTimes(1);
+  });
+
+  it('only fires onBegin once even on a duplicate MATCH_BEGIN', () => {
+    const fake = makeFakeRoom();
+    const source = makeSource(fake.room);
+    const begin = vi.fn();
+    source.onBegin(begin);
+    fake.dispatch('MATCH_BEGIN', {});
+    fake.dispatch('MATCH_BEGIN', {});
+    expect(begin).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('NetworkedMatchSource input-delay batching', () => {
+  it('pre-fills the first inputDelay frames so the sim never stalls at boot', () => {
+    const fake = makeFakeRoom();
+    // inputDelay 5 for a compact assertion.
+    const source = new NetworkedMatchSource({
+      room: fake.room,
+      playerOrder: ['p1', 'p2'],
+      myPlayerId: 'p1',
+      seed: 1,
+      colorMode: 4,
+      dropQueue: [['R', 'G']],
+      inputDelay: 5,
+    });
+    // Frames 0..4 are pre-populated (empty batches) so the scheduler can
+    // advance them without waiting on the network.
+    for (let f = 0; f < 5; f++) {
+      expect(source.getInputBatch(f)).not.toBeNull();
+    }
+    // Frame 5 has no batch yet — the server hasn't confirmed it.
+    expect(source.getInputBatch(5)).toBeNull();
+  });
+
+  it('submits local input tagged for currentFrame + inputDelay', () => {
+    const fake = makeFakeRoom();
+    const source = new NetworkedMatchSource({
+      room: fake.room,
+      playerOrder: ['p1', 'p2'],
+      myPlayerId: 'p1',
+      seed: 1,
+      colorMode: 4,
+      dropQueue: [['R', 'G']],
+      inputDelay: 5,
+    });
+    source.submitInput(3, ['MOVE_L']);
+    const input = fake.sent.find((m) => m.type === 'INPUT');
+    expect(input?.payload).toMatchObject({ frame: 8, actions: ['MOVE_L'] });
+  });
+
+  it('returns a server-confirmed INPUT_BATCH for a future frame', () => {
+    const fake = makeFakeRoom();
+    const source = new NetworkedMatchSource({
+      room: fake.room,
+      playerOrder: ['p1', 'p2'],
+      myPlayerId: 'p1',
+      seed: 1,
+      colorMode: 4,
+      dropQueue: [['R', 'G']],
+      inputDelay: 5,
+    });
+    fake.dispatch('INPUT_BATCH', { frame: 5, inputs: { p1: ['MOVE_R'], p2: [] } });
+    expect(source.getInputBatch(5)).toEqual({ p1: ['MOVE_R'], p2: [] });
+  });
+});

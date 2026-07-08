@@ -178,6 +178,8 @@ export function NetworkedMatchScene({
     let quitFired = false;
     let stallWatchdog: ReturnType<typeof setInterval> | null = null;
     let warnedStall = false;
+    let tickingStarted = false;
+    let beginFallback: ReturnType<typeof setTimeout> | null = null;
 
     // Single exit path back to the title. Leaves the room (so the
     // server frees it + awards the opponent the forfeit) exactly once,
@@ -250,6 +252,15 @@ export function NetworkedMatchScene({
         pixi.worldContainer.addChild(leftNext.container);
         pixi.worldContainer.addChild(rightNext.container);
 
+        // We're fully loaded (assets + renderers). ACK readiness so the
+        // server releases MATCH_BEGIN once BOTH players have loaded —
+        // that's what makes the two sims start ticking together.
+        try {
+          room.send('MATCH_ACK', {});
+        } catch {
+          /* socket may have dropped during load */
+        }
+
         // Match-start stinger + BGM, idempotent.
         void audio.start();
 
@@ -316,8 +327,28 @@ export function NetworkedMatchScene({
             rightNext?.update(match, opponentIndex);
           },
         });
-        scheduler.start();
-        setStatusMsg(null);
+        // Gate the first tick on the server's synchronized MATCH_BEGIN so
+        // both clients start together (see NetworkedMatchSource.onBegin).
+        // If BEGIN already arrived during asset load, start immediately;
+        // otherwise wait for it, with a fallback so a dropped BEGIN can't
+        // hang the match forever.
+        const beginTicking = () => {
+          if (cancelled || tickingStarted || !scheduler) return;
+          tickingStarted = true;
+          if (beginFallback) {
+            clearTimeout(beginFallback);
+            beginFallback = null;
+          }
+          scheduler.start();
+          setStatusMsg(null);
+        };
+        if (source.hasBegun) {
+          beginTicking();
+        } else {
+          setStatusMsg('対戦開始を同期中…');
+          source.onBegin(beginTicking);
+          beginFallback = setTimeout(beginTicking, 2000);
+        }
 
         // Stall watchdog: if the sim freezes on a missing batch for too
         // long, warn the player, then treat a very long stall as a lost
@@ -353,6 +384,7 @@ export function NetworkedMatchScene({
       window.removeEventListener('keydown', onEscape);
       window.removeEventListener('beforeunload', onBeforeUnload);
       if (stallWatchdog) clearInterval(stallWatchdog);
+      if (beginFallback) clearTimeout(beginFallback);
       audio.stop();
       scheduler?.dispose();
       leftField?.destroy();
