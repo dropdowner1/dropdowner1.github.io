@@ -73,6 +73,9 @@ interface Props {
   seed: number;
   colorMode: 4 | 5;
   dropQueue: readonly (readonly [PuyoColor, PuyoColor])[];
+  /** Bumped by App when the browser Back button is pressed — opens the
+   *  leave-confirm rather than abandoning the match. */
+  backSignal?: number;
   onEnd: (result: NetworkedMatchResult) => void;
   onQuit: () => void;
 }
@@ -83,6 +86,7 @@ export function NetworkedMatchScene({
   playerOrder,
   nicknamesByPlayerId,
   seed,
+  backSignal,
   colorMode,
   dropQueue,
   onEnd,
@@ -112,6 +116,16 @@ export function NetworkedMatchScene({
   const [confirmLeave, setConfirmLeave] = useState(false);
   const confirmLeaveRef = useRef(false);
   confirmLeaveRef.current = confirmLeave;
+
+  // Browser Back (relayed by App via backSignal) opens the same
+  // leave-confirm as Esc / the 退出 button, so it can't abandon a live
+  // match. Skip the initial render (no real Back press yet).
+  const prevBackSignal = useRef(backSignal);
+  useEffect(() => {
+    if (backSignal === undefined || backSignal === prevBackSignal.current) return;
+    prevBackSignal.current = backSignal;
+    setConfirmLeave(true);
+  }, [backSignal]);
 
   const onEndRef = useRef(onEnd);
   const onQuitRef = useRef(onQuit);
@@ -392,9 +406,7 @@ export function NetworkedMatchScene({
       <button type="button" className="vs-quit" onClick={askLeave}>
         退出
       </button>
-      <div className="keyhint">
-        ←/→: 移動　Z/X: 回転　↓: ソフトドロップ　Space: ハードドロップ　Esc: 退出
-      </div>
+      <div className="keyhint">←/→: 移動　Z/X: 回転　↓: ソフトドロップ　Esc: 退出</div>
 
       {confirmLeave && (
         // biome-ignore lint/a11y/useSemanticElements: transient game overlay

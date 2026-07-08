@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { postOnlineMatch } from './api/records';
 import { DifficultyScene } from './scenes/DifficultyScene';
 import { LobbyScene } from './scenes/LobbyScene';
@@ -33,6 +33,14 @@ export function App() {
   const [networkedStart, setNetworkedStart] = useState<MatchStartPayload | null>(null);
   /** Solo difficulty for the upcoming MatchScene. Picker writes this. */
   const [soloDifficulty, setSoloDifficulty] = useState<DifficultyLevel>(() => loadDifficulty());
+  /** Bumped when the browser Back button is pressed during an online
+   *  match; NetworkedMatchScene watches this to open its leave-confirm
+   *  rather than the match being silently abandoned. */
+  const [networkedBackSignal, setNetworkedBackSignal] = useState(0);
+
+  /** Mirror of `scene` for the (mount-once) popstate handler to read. */
+  const sceneRef = useRef(scene);
+  sceneRef.current = scene;
 
   // Apply persisted color mode on first paint so the user's previous
   // pick survives a reload. Settings volumes are applied lazily inside
@@ -68,6 +76,54 @@ export function App() {
     setResult(null);
     setScene('title');
   }, []);
+
+  // ---------------------------------------------------------------
+  // Browser Back handling.
+  //
+  // With no router, a raw Back press would leave the site entirely
+  // (and, mid-match, silently abandon the game). We install one
+  // always-armed history "trap": on mount we push a sentinel entry,
+  // and every popstate re-pushes it and instead routes Back UP one
+  // logical screen. Net history growth is zero (each pop consumes one
+  // entry, we push one back), so this never balloons the back stack.
+  //
+  //   difficulty / lobby / rankings → title
+  //   matchLobby                    → lobby (unmount leaves the room)
+  //   solo match / result           → title (quit)
+  //   online match                  → open the leave-confirm (no
+  //                                    navigation until the player OKs)
+  //   title                         → stay (root; Back is a no-op)
+  // ---------------------------------------------------------------
+  useEffect(() => {
+    window.history.pushState({ chaindropTrap: true }, '');
+    const onPopState = () => {
+      // Re-arm so the next Back is caught too.
+      window.history.pushState({ chaindropTrap: true }, '');
+      switch (sceneRef.current) {
+        case 'soloDifficulty':
+        case 'lobby':
+        case 'rankings':
+          setScene('title');
+          break;
+        case 'matchLobby':
+          setScene('lobby');
+          break;
+        case 'match':
+        case 'result':
+          handleQuit();
+          break;
+        case 'networkedMatch':
+          // Don't abandon a live match on Back — ask first.
+          setNetworkedBackSignal((n) => n + 1);
+          break;
+        default:
+          // title — stay put; the trap keeps us in the app.
+          break;
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [handleQuit]);
 
   const goOnline = useCallback(() => {
     setScene('lobby');
@@ -177,6 +233,7 @@ export function App() {
               ]
             >
           }
+          backSignal={networkedBackSignal}
           onEnd={handleNetworkedMatchEnd}
           onQuit={handleNetworkedQuit}
         />
