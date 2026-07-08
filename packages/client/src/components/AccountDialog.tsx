@@ -29,6 +29,14 @@ import {
   validateAccountForm,
 } from '../state/account';
 
+/**
+ * Techmana (テクマナ) — the in-house account/e-learning system that
+ * ChainDrop accounts will eventually federate with. Its SSO is still
+ * in development, so for now this is an external link out to it; the
+ * local ID+password + guest flows below remain the working path.
+ */
+const TECHMANA_URL = 'https://techmana.adamant-group.jp';
+
 interface Props {
   /** Called after a successful auth (or guest pass-through) with the
    *  identity to remember; for authed flows the resolved server user
@@ -157,6 +165,24 @@ export function AccountDialog({ onClose }: Props) {
   return (
     <div className="snes-window account-dialog">
       <h2 className="account-title">アカウント</h2>
+
+      <div className="account-techmana">
+        <a
+          className="account-techmana-btn"
+          href={TECHMANA_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          テクマナでログイン ↗
+        </a>
+        <p className="account-techmana-note">
+          今後アカウントはテクマナ（社内システム）で共通化予定です。
+        </p>
+      </div>
+
+      <div className="account-divider">
+        <span>または</span>
+      </div>
 
       <div className="account-tabs">
         <button
