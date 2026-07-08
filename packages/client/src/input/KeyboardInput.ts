@@ -152,9 +152,6 @@ export class KeyboardInput {
       case 'SOFT_DROP':
         this.pendingEvents.push('SOFT_START');
         break;
-      case 'HARD_DROP':
-        this.pendingEvents.push('HARD_DROP');
-        break;
       case 'PAUSE':
         // PAUSE is not a simulator input; scenes handle it separately.
         break;

@@ -14,11 +14,4 @@ export type PuyoColor = 'R' | 'G' | 'B' | 'Y' | 'P';
 export type ColorMode = 4 | 5;
 export type Capacity = 2 | 3 | 4;
 
-export type InputAction =
-  | 'MOVE_L'
-  | 'MOVE_R'
-  | 'ROT_L'
-  | 'ROT_R'
-  | 'SOFT_START'
-  | 'SOFT_END'
-  | 'HARD_DROP';
+export type InputAction = 'MOVE_L' | 'MOVE_R' | 'ROT_L' | 'ROT_R' | 'SOFT_START' | 'SOFT_END';

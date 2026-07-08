@@ -22,15 +22,7 @@ const frame = z.number().int().nonnegative();
 const colorMode = z.union([z.literal(4), z.literal(5)]);
 const capacity = z.union([z.literal(2), z.literal(3), z.literal(4)]);
 const puyoColor = z.enum(['R', 'G', 'B', 'Y', 'P']);
-const inputAction = z.enum([
-  'MOVE_L',
-  'MOVE_R',
-  'ROT_L',
-  'ROT_R',
-  'SOFT_START',
-  'SOFT_END',
-  'HARD_DROP',
-]);
+const inputAction = z.enum(['MOVE_L', 'MOVE_R', 'ROT_L', 'ROT_R', 'SOFT_START', 'SOFT_END']);
 
 const roomStatus = z.enum(['lobby', 'countdown', 'running', 'finished']);
 

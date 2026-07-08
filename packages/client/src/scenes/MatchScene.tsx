@@ -257,9 +257,7 @@ export function MatchScene({ seed, colorMode = 4, fallIntervalNormal, onEnd, onQ
           </div>
         )}
       </div>
-      <div className="keyhint">
-        ←/→: 移動　Z/X: 回転　↓: ソフトドロップ　Space: ハードドロップ　Esc: ポーズ
-      </div>
+      <div className="keyhint">←/→: 移動　Z/X: 回転　↓: ソフトドロップ　Esc: ポーズ</div>
 
       {paused && (
         // biome-ignore lint/a11y/useSemanticElements: transient game overlay

@@ -68,7 +68,6 @@ describe('InputSystem', () => {
       MOVE_L: 'KeyA',
       MOVE_R: 'KeyD',
       SOFT_DROP: 'KeyS',
-      HARD_DROP: 'Space',
       ROT_L: 'KeyQ',
       ROT_R: 'KeyE',
       PAUSE: 'Escape',

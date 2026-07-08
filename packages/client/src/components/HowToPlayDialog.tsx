@@ -82,10 +82,6 @@ export function HowToPlayDialog({ onClose }: Props) {
             <dd>ソフトドロップ(高速落下)</dd>
           </div>
           <div>
-            <dt>Space</dt>
-            <dd>ハードドロップ(一気に落とす)</dd>
-          </div>
-          <div>
             <dt>Esc</dt>
             <dd>ポーズ</dd>
           </div>
