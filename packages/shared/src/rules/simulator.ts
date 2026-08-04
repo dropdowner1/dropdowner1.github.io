@@ -78,9 +78,10 @@ export const LOCK_DELAY_FRAMES = 18;
 export const LOCK_RESET_LIMIT = 8;
 // Per-cell visual fall time. Mirrors the renderer's FALL_SPEED
 // (CELL_SIZE / FALL_FRAMES_PER_CELL px/frame) — keep in sync if
-// either is tuned. Lowered from 5 to 3 frames for snappier chigiri
-// + post-pop falls; the bounce + chigiri windows scale with this.
-export const FALL_FRAMES_PER_CELL = 3;
+// either is tuned. Back to 5 per playtest: 3 made the post-pop
+// collapse feel like teleporting. The snappy-chigiri feel is kept by
+// the short CHIGIRI_FRAMES hold below, not by the per-cell speed.
+export const FALL_FRAMES_PER_CELL = 5;
 // Frames to hold after a fall lands so the bounce/squish animation can
 // finish before the next chain tick or the next piece spawns.
 export const POST_FALL_SETTLE_FRAMES = 5;
