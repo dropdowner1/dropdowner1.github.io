@@ -1,11 +1,13 @@
 /*
- * Global palette + typography. The look is SNES/16-bit: a deep
- * indigo backdrop, a small pixel-art scanline, sharp panel corners,
- * and two pixel fonts wired in via index.html — DotGothic16 (full
- * Japanese coverage) for body copy, Press Start 2P (chunky ASCII)
- * for titles and HUD labels.
+ * Global palette + typography. The backdrop keeps its SNES/16-bit
+ * heritage (deep indigo, scanline, sharp panel corners), but the
+ * typography is soft and rounded to match the ぷにぷに branding:
+ * M PLUS Rounded 1c everywhere — 400/500 for body copy, 700/800 for
+ * the title and HUD. The two font variables are kept separate (body
+ * vs display) so a distinct display face can be slotted in later
+ * without touching call sites.
  *
- * Both fonts ship from Google Fonts under the SIL Open Font License,
+ * The font ships from Google Fonts under the SIL Open Font License,
  * so nothing has to be vendored into the repo.
  */
 :root {
@@ -21,9 +23,9 @@
   --snes-magenta: #ff5fa7;
   --snes-cyan: #5fd4ff;
 
-  --pixel-font-jp: "DotGothic16", "M PLUS 1 Code", "Hiragino Kaku Gothic ProN", "Hiragino Sans",
-    Meiryo, sans-serif;
-  --pixel-font-en: "Press Start 2P", "DotGothic16", monospace;
+  --font-body: "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", "Hiragino Kaku Gothic ProN", Meiryo,
+    sans-serif;
+  --font-display: "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", sans-serif;
 }
 
 *,
@@ -40,18 +42,32 @@ body,
   height: 100%;
   background: var(--snes-bg);
   color: var(--snes-text);
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 15px;
+  /* 500 gives the rounded face a slightly plump default without
+     tipping body copy into bold. */
+  font-weight: 500;
   overflow: hidden;
-  /* Crisp edges everywhere — soft anti-aliasing fights the pixel aesthetic. */
+  /* SPRITES stay crisp (pixelated) but TEXT antialiases — the rounded
+     font needs smoothing to read as soft; with smoothing off it came
+     out jagged, which was the "カクカク" complaint. */
   image-rendering: pixelated;
-  -webkit-font-smoothing: none;
+  -webkit-font-smoothing: antialiased;
 }
 
 button {
   font: inherit;
+  font-weight: 700;
   color: inherit;
   cursor: pointer;
+}
+
+/* Headings get the full chunky weight — the rounded face only reads
+   as "game UI" at its heaviest cuts. */
+h1,
+h2,
+h3 {
+  font-weight: 800;
 }
 
 /* ---------- Scene container ---------- */
@@ -99,7 +115,7 @@ button {
   right: 0;
   bottom: 14px;
   text-align: center;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 14px;
   color: var(--snes-text-dim);
   letter-spacing: 0.05em;
@@ -130,7 +146,7 @@ button {
 }
 
 .title-logo {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 3.4rem;
   margin: 0;
   color: var(--snes-accent);
@@ -144,7 +160,7 @@ button {
 .title-sub {
   margin: 0;
   color: var(--snes-cyan);
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 1.05rem;
   letter-spacing: 0.18em;
   text-shadow: 2px 2px 0 #0a1530;
@@ -155,7 +171,7 @@ button {
   border: none;
   color: var(--snes-accent);
   padding: 0.85rem 2.4rem;
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 0.95rem;
   letter-spacing: 0.12em;
   border-radius: 0;
@@ -222,18 +238,19 @@ button {
 }
 
 .panel-label {
-  font-family: var(--pixel-font-en);
-  font-size: 10px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
   color: var(--snes-cyan);
   margin-bottom: 6px;
   letter-spacing: 0.1em;
 }
 
 .panel-value {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 22px;
   color: var(--snes-accent);
-  font-weight: normal;
+  font-weight: 800;
   letter-spacing: 0.02em;
 }
 
@@ -244,7 +261,7 @@ button {
 
 .digital {
   font-variant-numeric: tabular-nums;
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
 }
 
 /* ---------- Result ---------- */
@@ -546,7 +563,7 @@ button {
   color: var(--snes-accent);
   border: none;
   cursor: pointer;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   box-shadow: inset 0 0 0 2px var(--snes-panel-edge);
 }
 
@@ -697,7 +714,7 @@ button {
 }
 
 .vs-ojama {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 0.85rem;
   letter-spacing: 0.08em;
   margin-top: 4px;
@@ -785,7 +802,7 @@ button {
 
 .pause-title {
   margin: 0 0 8px;
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 1.4rem;
   color: var(--snes-accent);
   letter-spacing: 0.08em;
@@ -799,7 +816,7 @@ button {
   border: none;
   border-radius: 0;
   padding: 14px 18px;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 1.05rem;
   letter-spacing: 0.06em;
   box-shadow: inset 0 0 0 2px var(--snes-panel-edge), 2px 2px 0 0 var(--snes-panel-shadow);
@@ -848,7 +865,7 @@ button {
 }
 
 .lobby-header h2 {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 1.4rem;
   letter-spacing: 0.08em;
   text-shadow: 2px 2px 0 var(--snes-bg-deep);
@@ -858,7 +875,7 @@ button {
 .lobby-field select {
   border-radius: 0;
   border: none;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   background: var(--snes-bg-deep);
   color: var(--snes-text);
   box-shadow: inset 0 0 0 2px var(--snes-panel-edge);
@@ -870,7 +887,7 @@ button {
 }
 
 .lobby-back {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 0.85rem;
   letter-spacing: 0.08em;
   border-radius: 0;
@@ -890,7 +907,7 @@ button {
 .lobby-rooms li button {
   border-radius: 0;
   border: none;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   letter-spacing: 0.06em;
   box-shadow: inset 0 0 0 2px #c79f00, 3px 3px 0 0 var(--snes-panel-shadow);
 }
@@ -904,34 +921,34 @@ button {
 }
 
 .match-lobby-countdown {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   letter-spacing: 0.08em;
   text-shadow: 2px 2px 0 var(--snes-bg-deep);
 }
 
 .vs-name {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   letter-spacing: 0.06em;
   text-shadow: 2px 2px 0 var(--snes-bg-deep);
 }
 
 .vs-score {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   letter-spacing: 0.02em;
 }
 
 .vs-chain {
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
 }
 
 /* Result screen */
 .result-title {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   text-shadow: 3px 3px 0 var(--snes-bg-deep);
 }
 
 .result-btn {
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   border-radius: 0;
 }
 
@@ -995,7 +1012,7 @@ html[data-color-mode="high-contrast"] {
 .title-account-btn {
   background: var(--snes-bg-deep);
   color: var(--snes-cyan);
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   letter-spacing: 0.06em;
   font-size: 0.85rem;
   padding: 8px 16px;
@@ -1020,7 +1037,7 @@ html[data-color-mode="high-contrast"] {
   background: var(--snes-bg-deep);
   color: var(--snes-text);
   border: none;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 1.05rem;
   letter-spacing: 0.08em;
   padding: 12px 22px;
@@ -1068,7 +1085,7 @@ html[data-color-mode="high-contrast"] {
 .title-marquee-track {
   display: inline-flex;
   white-space: nowrap;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 1rem;
   letter-spacing: 0.08em;
   color: var(--snes-accent);
@@ -1100,7 +1117,7 @@ html[data-color-mode="high-contrast"] {
 
 .settings-title {
   margin: 0 0 6px;
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 1.3rem;
   letter-spacing: 0.08em;
   color: var(--snes-accent);
@@ -1115,7 +1132,7 @@ html[data-color-mode="high-contrast"] {
 }
 
 .settings-label {
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   color: var(--snes-text);
 }
 
@@ -1146,7 +1163,7 @@ html[data-color-mode="high-contrast"] {
 }
 
 .settings-value {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 0.9rem;
   color: var(--snes-cyan);
   text-align: right;
@@ -1163,7 +1180,7 @@ html[data-color-mode="high-contrast"] {
   color: var(--snes-text);
   border: none;
   padding: 8px 14px;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 0.9rem;
   box-shadow: inset 0 0 0 2px var(--snes-panel-edge), 2px 2px 0 0 var(--snes-panel-shadow);
 }
@@ -1197,7 +1214,7 @@ html[data-color-mode="high-contrast"] {
 
 .account-title {
   margin: 0;
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 1.3rem;
   letter-spacing: 0.08em;
   color: var(--snes-accent);
@@ -1217,7 +1234,7 @@ html[data-color-mode="high-contrast"] {
   background: var(--snes-cyan);
   color: #05121b;
   padding: 12px 16px;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 1.05rem;
   letter-spacing: 0.04em;
   box-shadow: inset 0 0 0 2px #2b8fb8, 2px 2px 0 0 var(--snes-panel-shadow);
@@ -1264,7 +1281,7 @@ html[data-color-mode="high-contrast"] {
   color: var(--snes-text-dim);
   border: none;
   padding: 8px 14px;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   box-shadow: inset 0 0 0 2px var(--snes-panel-edge), 2px 2px 0 0 var(--snes-panel-shadow);
 }
 
@@ -1287,7 +1304,7 @@ html[data-color-mode="high-contrast"] {
 }
 
 .account-field-label {
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 0.85rem;
   color: var(--snes-cyan);
 }
@@ -1298,7 +1315,7 @@ html[data-color-mode="high-contrast"] {
   border: none;
   border-radius: 0;
   padding: 10px 12px;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 1rem;
   box-shadow: inset 0 0 0 2px var(--snes-panel-edge);
 }
@@ -1354,7 +1371,7 @@ html[data-color-mode="high-contrast"] {
 
 .rankings-header h2 {
   margin: 0;
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 1.6rem;
   color: var(--snes-accent);
   letter-spacing: 0.08em;
@@ -1363,7 +1380,7 @@ html[data-color-mode="high-contrast"] {
 
 .rankings-section-title {
   margin: 0 0 14px;
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 1rem;
   letter-spacing: 0.08em;
   color: var(--snes-cyan);
@@ -1385,14 +1402,14 @@ html[data-color-mode="high-contrast"] {
 
 .rankings-grid dt {
   margin: 0;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 0.85rem;
   color: var(--snes-text-dim);
 }
 
 .rankings-grid dd {
   margin: 4px 0 0;
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 1.5rem;
   color: var(--snes-accent);
 }
@@ -1405,7 +1422,7 @@ html[data-color-mode="high-contrast"] {
 
 .rankings-online-summary {
   margin: 0 0 14px;
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 1.1rem;
   color: var(--snes-accent);
 }
@@ -1440,7 +1457,7 @@ html[data-color-mode="high-contrast"] {
 }
 
 .rankings-outcome {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 0.85rem;
   letter-spacing: 0.08em;
 }
@@ -1456,17 +1473,17 @@ html[data-color-mode="high-contrast"] {
 }
 
 .rankings-opp {
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
 }
 
 .rankings-score {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   text-align: right;
   color: var(--snes-text);
 }
 
 .rankings-at {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 0.75rem;
   text-align: right;
   color: var(--snes-text-dim);
@@ -1488,7 +1505,7 @@ html[data-color-mode="high-contrast"] {
 
 .lobby-identity {
   margin: 0;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   color: var(--snes-text-dim);
 }
 
@@ -1511,7 +1528,7 @@ html[data-color-mode="high-contrast"] {
 
 .lobby-section-title {
   margin: 0 0 12px;
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 1rem;
   letter-spacing: 0.06em;
   color: var(--snes-cyan);
@@ -1566,21 +1583,21 @@ html[data-color-mode="high-contrast"] {
   color: var(--snes-text);
   box-shadow: inset 0 0 0 2px var(--snes-panel-edge);
   text-align: center;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 1rem;
   line-height: 1.5;
 }
 
 .account-loggedin strong {
   color: var(--snes-accent);
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-weight: 700;
 }
 
 .account-loggedin-id {
   display: inline-block;
   margin-top: 4px;
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 0.8rem;
   color: var(--snes-cyan);
 }
@@ -1605,7 +1622,7 @@ html[data-color-mode="high-contrast"] {
 }
 
 .rankings-rank {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 0.95rem;
   color: var(--snes-accent);
   letter-spacing: 0.08em;
@@ -1625,7 +1642,7 @@ html[data-color-mode="high-contrast"] {
 .difficulty-title {
   margin: 0;
   text-align: center;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 1.6rem;
   color: var(--snes-accent);
   letter-spacing: 0.12em;
@@ -1649,7 +1666,7 @@ html[data-color-mode="high-contrast"] {
   color: var(--snes-text);
   border: none;
   cursor: pointer;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   box-shadow: inset 0 0 0 2px var(--snes-panel-edge);
   transition: transform 60ms ease, box-shadow 60ms ease, background 60ms ease;
 }
@@ -1702,7 +1719,7 @@ html[data-color-mode="high-contrast"] {
 .how-to-play-title {
   margin: 0;
   text-align: center;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 1.6rem;
   color: var(--snes-accent);
   letter-spacing: 0.12em;
@@ -1711,7 +1728,7 @@ html[data-color-mode="high-contrast"] {
 
 .how-to-play-subtitle {
   margin: 6px 0 8px;
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 0.85rem;
   color: var(--snes-cyan);
   letter-spacing: 0.1em;
@@ -1737,7 +1754,7 @@ html[data-color-mode="high-contrast"] {
 }
 
 .how-to-play-step {
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 1.4rem;
   color: var(--snes-accent);
   text-align: center;
@@ -1745,14 +1762,14 @@ html[data-color-mode="high-contrast"] {
 
 .how-to-play-headline {
   margin: 0 0 4px;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 1rem;
   color: var(--snes-text);
 }
 
 .how-to-play-detail {
   margin: 0;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 0.85rem;
   line-height: 1.5;
   color: var(--snes-text-dim);
@@ -1780,7 +1797,7 @@ html[data-color-mode="high-contrast"] {
 
 .how-to-play-keys dt {
   margin: 0;
-  font-family: var(--pixel-font-en);
+  font-family: var(--font-display);
   font-size: 0.85rem;
   color: var(--snes-cyan);
   text-align: right;
@@ -1789,7 +1806,7 @@ html[data-color-mode="high-contrast"] {
 
 .how-to-play-keys dd {
   margin: 0;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 0.85rem;
   color: var(--snes-text);
 }
@@ -1814,7 +1831,7 @@ html[data-color-mode="high-contrast"] {
 .confirm-leave-title {
   margin: 0;
   text-align: center;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 1.2rem;
   color: var(--snes-accent);
   letter-spacing: 0.08em;
@@ -1824,7 +1841,7 @@ html[data-color-mode="high-contrast"] {
 .confirm-leave-detail {
   margin: 0;
   text-align: center;
-  font-family: var(--pixel-font-jp);
+  font-family: var(--font-body);
   font-size: 0.9rem;
   line-height: 1.5;
   color: var(--snes-text-dim);
