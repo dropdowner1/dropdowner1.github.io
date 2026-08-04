@@ -114,7 +114,7 @@ export function TitleScene({ onStart, onOnline, onRankings }: Props) {
       </div>
 
       <div className="title-content">
-        <h1 className="title-logo">ChainDrop</h1>
+        <h1 className="title-logo">ぷにぷに</h1>
 
         <div className="title-menu snes-window">
           <MenuButton label="ソロプレイ" onClick={() => handle(onStart)} primary />
@@ -197,7 +197,7 @@ function buildMarquee(): React.ReactNode {
     segments.push(`★オンライン ${wins}勝 ${losses}敗`);
   }
   if (segments.length === 0) {
-    segments.push('★ ChainDrop へようこそ');
+    segments.push('★ ぷにぷに へようこそ');
     segments.push('★ ソロプレイで記録を作ろう');
     segments.push('★ オンラインで対戦しよう');
   }
