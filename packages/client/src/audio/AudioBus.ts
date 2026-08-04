@@ -3,11 +3,12 @@
  * trigger SE one-shots and switch a BGM loop on/off from anywhere
  * without each scene having to keep its own AudioContext.
  *
- * Phase A keeps everything synthesised at runtime so we don't need to
- * vendor any audio files. SE are short oscillator + envelope blips;
- * BGM is a looping 8-bar square-wave melody. The whole engine sits
- * behind an `ensureUnlocked()` gate because browsers won't let an
- * AudioContext resume without a user gesture.
+ * SE are short oscillator + envelope blips synthesised at runtime (no
+ * vendored audio files). BGM is currently SILENT: the placeholder
+ * melody was removed and real BGM tracks will be added later — the
+ * start/stop API and volume plumbing are kept for that. The whole
+ * engine sits behind an `ensureUnlocked()` gate because browsers won't
+ * let an AudioContext resume without a user gesture.
  *
  * Volumes are 0..10 (matching the settings slider) and mapped to a
  * 0..1 GainNode value through a quadratic curve so quiet steps feel
@@ -39,25 +40,11 @@ const SE_DEFS: Record<SeName, { freq: number; durMs: number; type?: OscillatorTy
   'ojama-drop': { freq: 110, durMs: 260, type: 'triangle' },
 };
 
-/**
- * 16-step BGM motif in semitone offsets from A3. Plays as a square
- * wave at one note per 200ms (~120 BPM eighth-notes), wraps round
- * forever. The arpeggio shape is deliberately neutral SFC-puzzle
- * adjacent without being a direct quote of any commercial track.
- */
-const BGM_NOTES: readonly number[] = [0, 4, 7, 12, 7, 4, 0, 4, -2, 2, 5, 10, 5, 2, -2, 2];
-const BGM_NOTE_MS = 200;
-const A3_FREQ = 220;
-
 export class AudioBus {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private bgmGain: GainNode | null = null;
   private seGain: GainNode | null = null;
-
-  private bgmRunning = false;
-  private bgmTimer: ReturnType<typeof setTimeout> | null = null;
-  private bgmStep = 0;
 
   /** 0..10. Stored even before the ctx exists so we can apply on unlock. */
   private bgmVolume = 5;
@@ -127,44 +114,19 @@ export class AudioBus {
     osc.stop(t + def.durMs / 1000 + 0.02);
   }
 
+  /**
+   * BGM is intentionally silent for now. The synthesized placeholder
+   * melody was removed on request — real BGM audio files will be
+   * dropped in later. The start/stop API, the bgmGain node, and the
+   * settings-menu volume slider are all kept so wiring the real track
+   * in only touches these two methods.
+   */
   startBgm(): void {
-    if (this.bgmRunning) return;
-    if (!this.ctx || !this.bgmGain) return;
-    this.bgmRunning = true;
-    this.bgmStep = 0;
-    this.tickBgm();
+    /* no-op until real BGM assets land */
   }
 
   stopBgm(): void {
-    this.bgmRunning = false;
-    if (this.bgmTimer) {
-      clearTimeout(this.bgmTimer);
-      this.bgmTimer = null;
-    }
-  }
-
-  // ----------------------------------------------------------------
-
-  private tickBgm(): void {
-    if (!this.bgmRunning || !this.ctx || !this.bgmGain) return;
-    const semitone = BGM_NOTES[this.bgmStep % BGM_NOTES.length] as number;
-    const freq = A3_FREQ * 2 ** (semitone / 12);
-    const t = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    osc.type = 'square';
-    osc.frequency.value = freq;
-    const env = this.ctx.createGain();
-    env.gain.setValueAtTime(0, t);
-    env.gain.linearRampToValueAtTime(1, t + 0.01);
-    env.gain.setValueAtTime(1, t + (BGM_NOTE_MS - 30) / 1000);
-    env.gain.exponentialRampToValueAtTime(0.001, t + BGM_NOTE_MS / 1000);
-    osc.connect(env);
-    env.connect(this.bgmGain);
-    osc.start(t);
-    osc.stop(t + (BGM_NOTE_MS + 20) / 1000);
-
-    this.bgmStep++;
-    this.bgmTimer = setTimeout(() => this.tickBgm(), BGM_NOTE_MS);
+    /* no-op until real BGM assets land */
   }
 }
 
