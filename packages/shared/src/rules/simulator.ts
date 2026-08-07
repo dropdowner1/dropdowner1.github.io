@@ -72,9 +72,11 @@ export function fallIntervalForCleared(
   const level = Math.floor(Math.max(0, cellsCleared) / FALL_SPEEDUP_CLEARED_PER_LEVEL);
   return Math.max(FALL_INTERVAL_MIN, normalInterval - level * FALL_SPEEDUP_FRAMES_PER_LEVEL);
 }
-// 18 frames = 0.3s at 60fps. The grace window between a piece touching
-// the ground and locking — gives the player a beat to slide it sideways.
-export const LOCK_DELAY_FRAMES = 18;
+// 30 frames = 0.5s at 60fps. The grace window between a piece touching
+// the ground and locking. Widened from 18 to match the original Puyo
+// feel — the classic games give a generous settle beat for last-moment
+// slides/rotations before the pair commits.
+export const LOCK_DELAY_FRAMES = 30;
 export const LOCK_RESET_LIMIT = 8;
 // Per-cell visual fall time. Mirrors the renderer's FALL_SPEED
 // (CELL_SIZE / FALL_FRAMES_PER_CELL px/frame) — keep in sync if

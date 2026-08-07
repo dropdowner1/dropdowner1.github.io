@@ -77,36 +77,10 @@ h3 {
   inset: 0;
   display: grid;
   place-items: center;
-  /* a faint diagonal tile pattern that nods to SNES Mode-7 backdrops */
-  background: repeating-linear-gradient(
-      45deg,
-      rgba(255, 255, 255, 0.018) 0,
-      rgba(255, 255, 255, 0.018) 2px,
-      transparent 2px,
-      transparent 6px
-    ), radial-gradient(ellipse at 50% 0%, rgba(95, 95, 200, 0.18) 0%, transparent 60%),
+  /* Soft radial glow only — the old faint stripe/scanline overlays were
+     hard on the eyes and are gone per playtest. */
+  background: radial-gradient(ellipse at 50% 0%, rgba(95, 95, 200, 0.18) 0%, transparent 60%),
     var(--snes-bg);
-}
-
-/*
- * A faint 1-pixel horizontal scanline overlay on every scene, sized to
- * the device pixel so it reads as a CRT-style screen door rather than
- * a fuzz pattern. Pointer-events off so it never eats clicks.
- */
-.scene::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 5;
-  background: repeating-linear-gradient(
-    0deg,
-    rgba(0, 0, 0, 0.18) 0,
-    rgba(0, 0, 0, 0.18) 1px,
-    transparent 1px,
-    transparent 3px
-  );
-  mix-blend-mode: multiply;
 }
 
 .keyhint {
@@ -127,13 +101,7 @@ h3 {
 /* ---------- Title ---------- */
 
 .title-scene {
-  background: repeating-linear-gradient(
-      45deg,
-      rgba(255, 255, 255, 0.02) 0,
-      rgba(255, 255, 255, 0.02) 2px,
-      transparent 2px,
-      transparent 6px
-    ), radial-gradient(ellipse at 30% 20%, #2a1b4d 0%, transparent 60%),
+  background: radial-gradient(ellipse at 30% 20%, #2a1b4d 0%, transparent 60%),
     radial-gradient(ellipse at 70% 80%, #1b2d5a 0%, transparent 60%), var(--snes-bg-deep);
 }
 
@@ -295,7 +263,6 @@ h3 {
   background: rgba(20, 20, 40, 0.6);
   padding: 1rem 1.5rem;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .result-stats dt {

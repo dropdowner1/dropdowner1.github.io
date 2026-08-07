@@ -5,6 +5,7 @@ import { audioBus } from '../audio/AudioBus';
 import { createMatchAudio } from '../audio/MatchAudio';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { InputSystem } from '../input/InputSystem';
+import { BackgroundRenderer } from '../renderer/BackgroundRenderer';
 import { FieldRenderer } from '../renderer/FieldRenderer';
 import { NextRenderer } from '../renderer/NextRenderer';
 import { PixiApp } from '../renderer/PixiApp';
@@ -117,6 +118,7 @@ export function MatchScene({ seed, colorMode = 4, fallIntervalNormal, onEnd, onQ
 
     let renderer: FieldRenderer | null = null;
     let nextRenderer: NextRenderer | null = null;
+    let background: BackgroundRenderer | null = null;
     let scheduler: FrameScheduler | null = null;
     let sheet: PuyoSheet | null = null;
     let cancelled = false;
@@ -138,8 +140,11 @@ export function MatchScene({ seed, colorMode = 4, fallIntervalNormal, onEnd, onQ
           return;
         }
         sheet = loadedSheet;
+        background = new BackgroundRenderer();
         renderer = new FieldRenderer(loadedSheet);
         nextRenderer = new NextRenderer(loadedSheet);
+        // Background sits below everything else in the world.
+        pixi.worldContainer.addChild(background.container);
         pixi.worldContainer.addChild(renderer.container);
         pixi.worldContainer.addChild(nextRenderer.container);
 
@@ -202,6 +207,7 @@ export function MatchScene({ seed, colorMode = 4, fallIntervalNormal, onEnd, onQ
             });
           },
           onRender: (match) => {
+            background?.tick();
             const p = match.players[0];
             if (!p || !renderer) return;
             renderer.update(p);
@@ -225,6 +231,7 @@ export function MatchScene({ seed, colorMode = 4, fallIntervalNormal, onEnd, onQ
       scheduler?.dispose();
       renderer?.destroy();
       nextRenderer?.destroy();
+      background?.destroy();
       sheet?.destroy();
       pixi.destroy();
       input.dispose();
