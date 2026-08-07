@@ -17,23 +17,20 @@
  *   - Occasional eye blinks on settled puyos (sprite squash).
  */
 
-import { FALL_FRAMES_PER_CELL, FALL_INTERVAL_SOFT, type PlayerState } from '@chaindrop/shared';
+import { FALL_INTERVAL_SOFT, type PlayerState } from '@chaindrop/shared';
 import { Container, Graphics, Sprite, type Texture } from 'pixi.js';
 import type { PuyoSheet } from './PuyoTexture';
 import { SHEET_CELL } from './PuyoTexture';
 import { type FieldSprite, computeFieldSprites } from './fieldView';
 import {
   CELL_SIZE,
-  FIELD_COLS,
   FIELD_ORIGIN_X,
   FIELD_ORIGIN_Y,
   FIELD_PIXEL_HEIGHT,
   FIELD_PIXEL_WIDTH,
-  VISIBLE_ROWS,
 } from './layout';
 
 const FRAME_LINE_COLOR = 0xffd60a;
-const GRID_LINE_COLOR = 0x2a2a44;
 
 /** Target sprite size / texture cell size. Applied as the base scale. */
 const BASE_SCALE = CELL_SIZE / SHEET_CELL; // 48 / 32 = 1.5
@@ -49,11 +46,18 @@ const ROTATION_FRAMES = 6;
  */
 const SOFT_DROP_STEP = CELL_SIZE / FALL_INTERVAL_SOFT;
 /**
- * Gravity-fall speed in pixels per render frame (uniform across columns).
- * Stays in sync with the simulator's `FALL_FRAMES_PER_CELL` so that the
- * resolve / chigiri tick windows correctly cover the visible fall.
+ * Gravity-accelerated fall, original-Puyo style: cells start slow and
+ * pick up speed instead of moving at a uniform rate. Tuned so a 1-cell
+ * fall completes in exactly FALL_FRAMES_PER_CELL frames (the budget the
+ * simulator's resolve/chigiri windows are computed from); longer falls
+ * arrive EARLIER than the uniform budget, so the sim window always
+ * covers the animation.
+ *   v0=CELL/8, g=CELL/24/frame², vmax=CELL/2.4
+ *   @48px cell: 6 + 8 + 10 + 12 + 14 = 50px ≥ 48px in 5 frames.
  */
-const FALL_SPEED = CELL_SIZE / FALL_FRAMES_PER_CELL;
+const FALL_V0 = CELL_SIZE / 8;
+const FALL_G = CELL_SIZE / 24;
+const FALL_VMAX = CELL_SIZE / 2.4;
 /**
  * Duration of the post-fall gummy bounce, in render frames. A longer
  * window with a softer scale gives the impact a "mochi" squish — slow
@@ -114,6 +118,14 @@ interface CellSnapshot {
    * fall-in and the new puyo appears to teleport down.
    */
   popping: boolean;
+  /** Current fall velocity in px/frame (gravity-accelerated). */
+  vel: number;
+  /**
+   * Impact strength 0..1 recorded when the fall lands (vel / vmax).
+   * Scales the landing squish so a long drop hits with a bigger mochi
+   * splat than a 1-cell hop — original-Puyo style.
+   */
+  impact: number;
   /** Gummy-bounce frame counter: -1 means inactive, 0..BOUNCE_FRAMES-1 active. */
   bounceFrame: number;
   /** Frames left in an idle blink (0 = not blinking). */
@@ -355,6 +367,8 @@ export class FieldRenderer {
       targetY: spec.y,
       falling,
       popping: false,
+      vel: falling ? FALL_V0 : 0,
+      impact: 0,
       bounceFrame: -1,
       blinkFrames: 0,
       blinkIsWink: false,
@@ -381,6 +395,7 @@ export class FieldRenderer {
       // post-landing mochi bounce; only after the bounce settles does
       // the cell click into its neighbours.
       if (entry.snap.falling) {
+        entry.snap.vel = FALL_V0;
         entry.sprite.texture = this.sheet.get(spec.cellKind);
       }
     }
@@ -398,14 +413,18 @@ export class FieldRenderer {
     this.applyVisualState(entry, spec);
   }
 
-  /** Uniform-speed fall with a gummy bounce on impact. */
+  /** Gravity-accelerated fall with a gummy bounce on impact. */
   private tickFall(entry: BoardEntry): void {
     const { snap } = entry;
     if (snap.falling) {
-      snap.displayY = Math.min(snap.targetY, snap.displayY + FALL_SPEED);
+      snap.vel = Math.min(snap.vel + FALL_G, FALL_VMAX);
+      snap.displayY = Math.min(snap.targetY, snap.displayY + snap.vel);
       if (snap.displayY >= snap.targetY) {
         snap.displayY = snap.targetY;
         snap.falling = false;
+        // Remember how hard we hit so the squish can scale with it.
+        snap.impact = Math.min(1, snap.vel / FALL_VMAX);
+        snap.vel = 0;
         snap.bounceFrame = 0;
       }
     }
@@ -480,35 +499,36 @@ export class FieldRenderer {
     let scaleY = BASE_SCALE;
     let alpha = 1;
 
-    // Pop: longer-lasting transparency + rapid blink between visible
-    // and dim, then a final fade-out at the very end.
+    // Pop, original-Puyo style: a clean on/off BLINK phase (the whole
+    // cluster flashes ~3 times at full visibility), then a quick
+    // swell-and-vanish. Reads as the classic "点滅してからパンッ".
     entry.snap.popping = spec.popProgress !== undefined && spec.popProgress > 0;
     if (spec.popProgress !== undefined && spec.popProgress > 0) {
       const p = Math.min(1, spec.popProgress);
-      // Subtle scale pulse — much smaller than before so the puyo
-      // mostly stays in place while it flickers and fades.
-      const popScale = p < 0.5 ? 1 + p * 0.15 : Math.max(0, 1.075 - (p - 0.5) * 1.6);
-      scaleX *= popScale;
-      scaleY *= popScale;
-      // Base translucency throughout the pop (≥ ~0.5 visible).
-      let popAlpha = 0.55;
-      // Rapid blink: dim phase reaches ~15% alpha.
-      const blinkPhase = Math.floor((p * 30) % 2);
-      if (blinkPhase === 1) popAlpha = 0.15;
-      // Final fade to invisible in the last 25% of the pop.
-      if (p > 0.75) popAlpha *= 1 - (p - 0.75) / 0.25;
-      alpha *= popAlpha;
+      if (p < 0.6) {
+        // Blink phase: 3 full-visibility toggles across the window.
+        const on = Math.floor((p / 0.6) * 6) % 2 === 0;
+        alpha *= on ? 1 : 0.12;
+      } else {
+        // Vanish phase: brief swell then shrink to nothing while fading.
+        const t = (p - 0.6) / 0.4;
+        const popScale = t < 0.3 ? 1 + t * 0.5 : Math.max(0.05, 1.15 - (t - 0.3) * 1.6);
+        scaleX *= popScale;
+        scaleY *= popScale;
+        alpha *= 1 - t;
+      }
     }
 
-    // Bounce: a slow mochi-squish on impact. Asymmetric curve — quick
-    // squish down on the way in, slow ease back out — so it reads like
-    // soft rice cake settling rather than a stiff pop.
+    // Bounce: a mochi-squish on impact, scaled by how hard the cell
+    // landed (snap.impact) — a long drop splats wider and flatter than
+    // a 1-cell hop, like the original's landing squash.
     if (entry.snap.bounceFrame >= 0 && entry.snap.bounceFrame < BOUNCE_FRAMES) {
       const t = entry.snap.bounceFrame / BOUNCE_FRAMES;
-      // Cube-root rise (fast) for t < 0.3, then a long ease-out tail.
+      // Fast squish in for t < 0.3, then a long ease-out tail.
       const bend = t < 0.3 ? (t / 0.3) ** 0.5 : 1 - ((t - 0.3) / 0.7) ** 1.4;
-      scaleX *= 1 + 0.08 * bend;
-      scaleY *= 1 - 0.14 * bend;
+      const k = 0.5 + 0.5 * entry.snap.impact;
+      scaleX *= 1 + 0.16 * k * bend;
+      scaleY *= 1 - 0.22 * k * bend;
     }
 
     s.scale.set(scaleX, scaleY);
@@ -778,21 +798,10 @@ export class FieldRenderer {
     const g = this.frameLayer;
     g.clear();
 
+    // Solid well + bold outer frame only. The per-cell grid lines were
+    // removed per playtest — the faint 1px hairlines hurt readability.
     g.rect(FIELD_ORIGIN_X, FIELD_ORIGIN_Y, FIELD_PIXEL_WIDTH, FIELD_PIXEL_HEIGHT);
     g.fill(0x0c0c1f);
-
-    for (let i = 1; i < FIELD_COLS; i++) {
-      const x = FIELD_ORIGIN_X + i * CELL_SIZE;
-      g.moveTo(x, FIELD_ORIGIN_Y);
-      g.lineTo(x, FIELD_ORIGIN_Y + FIELD_PIXEL_HEIGHT);
-    }
-    for (let j = 1; j < VISIBLE_ROWS; j++) {
-      const y = FIELD_ORIGIN_Y + j * CELL_SIZE;
-      g.moveTo(FIELD_ORIGIN_X, y);
-      g.lineTo(FIELD_ORIGIN_X + FIELD_PIXEL_WIDTH, y);
-    }
-    g.stroke({ width: 1, color: GRID_LINE_COLOR, alpha: 0.6 });
-
     g.rect(FIELD_ORIGIN_X, FIELD_ORIGIN_Y, FIELD_PIXEL_WIDTH, FIELD_PIXEL_HEIGHT);
     g.stroke({ width: 3, color: FRAME_LINE_COLOR });
   }
