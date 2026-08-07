@@ -16,6 +16,7 @@ import type { Room } from 'colyseus.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createMatchAudio } from '../audio/MatchAudio';
 import { InputSystem } from '../input/InputSystem';
+import { BackgroundRenderer } from '../renderer/BackgroundRenderer';
 import { FieldRenderer } from '../renderer/FieldRenderer';
 import { NextRenderer } from '../renderer/NextRenderer';
 import { PixiApp } from '../renderer/PixiApp';
@@ -170,6 +171,7 @@ export function NetworkedMatchScene({
     let cancelled = false;
     let scheduler: FrameScheduler | null = null;
     let sheet: PuyoSheet | null = null;
+    let background: BackgroundRenderer | null = null;
     let leftField: FieldRenderer | null = null;
     let rightField: FieldRenderer | null = null;
     let leftNext: NextRenderer | null = null;
@@ -236,6 +238,8 @@ export function NetworkedMatchScene({
           return;
         }
         sheet = loadedSheet;
+        background = new BackgroundRenderer();
+        pixi.worldContainer.addChild(background.container);
         leftField = new FieldRenderer(loadedSheet);
         rightField = new FieldRenderer(loadedSheet);
         leftField.container.x = LEFT_OFFSET;
@@ -318,6 +322,7 @@ export function NetworkedMatchScene({
             setHuds(next);
           },
           onRender: (match) => {
+            background?.tick();
             if (!leftField || !rightField) return;
             const myPlayer = match.players[myIndex];
             const oppPlayer = match.players[opponentIndex];
@@ -391,6 +396,7 @@ export function NetworkedMatchScene({
       rightField?.destroy();
       leftNext?.destroy();
       rightNext?.destroy();
+      background?.destroy();
       sheet?.destroy();
       pixi.destroy();
       input.dispose();
