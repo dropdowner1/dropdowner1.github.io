@@ -17,7 +17,7 @@
     "@colyseus/core": "^0.16.0",
     "@colyseus/monitor": "^0.16.0",
     "@colyseus/schema": "^3.0.76",
-    "@colyseus/ws-transport": "^0.16.0",
+    "@colyseus/ws-transport": "^0.17.13",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.10.0",
     "colyseus": "^0.16.0",
