@@ -109,3 +109,43 @@ describe('AuthService.verify', () => {
     expect(verified?.user.userId).toBe('bob');
   });
 });
+
+describe('AuthService.createExternalUser', () => {
+  it('creates an account that cannot be logged into with a password', () => {
+    const auth = makeService();
+    const dbUserId = auth.createExternalUser({ userId: 'tm42', playerName: 'テクマナ太郎' });
+    expect(dbUserId).toBeGreaterThan(0);
+
+    const session = auth.mintSessionFor(dbUserId);
+    expect(session?.user.userId).toBe('tm42');
+    expect(session?.user.playerName).toBe('テクマナ太郎');
+
+    // No password was ever chosen, so nothing a caller can supply should
+    // authenticate — including the empty string.
+    for (const password of ['', 'password', 'tm42']) {
+      expect(auth.login({ userId: 'tm42', password }).ok).toBe(false);
+    }
+  });
+
+  it('sidesteps a userId that is already taken', () => {
+    const auth = makeService();
+    auth.signup({ playerName: '先客', userId: 'tm42', password: 'p4ssw0rd!' });
+
+    const dbUserId = auth.createExternalUser({ userId: 'tm42', playerName: 'あとから' });
+    const session = auth.mintSessionFor(dbUserId);
+    expect(session?.user.userId).toBe('tm42_2');
+    // The original account is untouched and still logs in.
+    expect(auth.login({ userId: 'tm42', password: 'p4ssw0rd!' }).ok).toBe(true);
+  });
+
+  it('falls back to a display name when the provider gives none', () => {
+    const auth = makeService();
+    const dbUserId = auth.createExternalUser({ userId: 'tm7', playerName: '   ' });
+    expect(auth.mintSessionFor(dbUserId)?.user.playerName).toBe('プレイヤー');
+  });
+
+  it('mintSessionFor returns null for an unknown id', () => {
+    const auth = makeService();
+    expect(auth.mintSessionFor(99999)).toBeNull();
+  });
+});

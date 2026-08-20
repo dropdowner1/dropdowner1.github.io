@@ -54,13 +54,19 @@ export class HttpApiError extends Error implements ApiError {
     public readonly status: number,
     public readonly code: string,
     public override readonly message: string,
+    /**
+     * The parsed error body, when the server sent one. Some responses
+     * carry data the caller needs to recover — a 409 from the cloud
+     * save, for instance, includes the newer copy that won.
+     */
+    public readonly body?: unknown,
   ) {
     super(`${code}: ${message}`);
     this.name = 'HttpApiError';
   }
 }
 
-async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+async function call<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<T> {
   // Build the RequestInit dynamically so the `body` property is
   // entirely absent when there's nothing to send — under
   // exactOptionalPropertyTypes, fetch refuses to take `undefined` as
@@ -99,7 +105,7 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
     const code = (json as { error?: string } | undefined)?.error ?? `HTTP_${res.status}`;
     const message =
       (json as { message?: string } | undefined)?.message ?? res.statusText ?? 'request failed';
-    throw new HttpApiError(res.status, code, message);
+    throw new HttpApiError(res.status, code, message, json);
   }
   return (json ?? {}) as T;
 }
@@ -115,4 +121,11 @@ function safeJson(s: string): unknown {
 export const http = {
   get: <T>(path: string) => call<T>('GET', path),
   post: <T>(path: string, body?: unknown) => call<T>('POST', path, body),
+  put: <T>(path: string, body?: unknown) => call<T>('PUT', path, body),
 };
+
+/**
+ * The resolved API origin. Needed for flows that hand the browser to
+ * the server directly (OAuth), where `fetch` is not involved.
+ */
+export const apiBase = API_BASE;

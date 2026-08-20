@@ -5,6 +5,8 @@
  * marquee and the ランキング・戦績 panel.
  */
 
+import { notifyLocalStateChanged } from './persistBus';
+
 export interface SoloBest {
   bestScore: number;
   bestMaxChain: number;
@@ -33,7 +35,7 @@ export const EMPTY_RECORDS: Records = {
 
 const STORAGE_KEY = 'chaindrop.records.v1';
 /** Cap the online history list so localStorage doesn't grow unbounded. */
-const HISTORY_LIMIT = 50;
+export const HISTORY_LIMIT = 50;
 
 export function loadRecords(): Records {
   if (typeof window === 'undefined' || !window.localStorage) return EMPTY_RECORDS;
@@ -62,6 +64,7 @@ export function saveRecords(records: Records): void {
   } catch {
     /* ignore */
   }
+  notifyLocalStateChanged();
 }
 
 export interface SoloRunResult {

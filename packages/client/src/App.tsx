@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 import { postOnlineMatch } from './api/records';
 import { DifficultyScene } from './scenes/DifficultyScene';
 import { LobbyScene } from './scenes/LobbyScene';
@@ -8,6 +8,7 @@ import { type NetworkedMatchResult, NetworkedMatchScene } from './scenes/Network
 import { RankingsScene } from './scenes/RankingsScene';
 import { ResultScene } from './scenes/ResultScene';
 import { TitleScene } from './scenes/TitleScene';
+import { useSession } from './state/SessionContext';
 import { loadAccount } from './state/account';
 import { applyColorModeDom } from './state/colorMode';
 import { type DifficultyLevel, fallIntervalFor, loadDifficulty } from './state/difficulty';
@@ -25,7 +26,10 @@ type SceneKind =
   | 'rankings';
 
 export function App() {
+  const { refresh: refreshSession } = useSession();
   const [scene, setScene] = useState<SceneKind>('title');
+  /** Result of a Techmana round-trip, shown once then dismissed. */
+  const [techmanaNotice, setTechmanaNotice] = useState<Notice | null>(null);
   const [matchKey, setMatchKey] = useState(0);
   const [result, setResult] = useState<MatchResult | null>(null);
   const [matchRoomId, setMatchRoomId] = useState('');
@@ -48,6 +52,43 @@ export function App() {
   useEffect(() => {
     applyColorModeDom(loadSettings().colorMode);
   }, []);
+
+  // ---------------------------------------------------------------
+  // Techmana callback.
+  //
+  // The server finishes the OAuth exchange and sends the browser back
+  // here with ?techmana=ok (or =error&reason=…). Read it, strip it,
+  // and re-probe /me so the freshly-set session cookie takes effect.
+  //
+  // Stripping matters: the query has to be gone before the history
+  // trap below pushes its sentinel, otherwise a reload would replay
+  // the banner for a link that happened minutes ago.
+  // ---------------------------------------------------------------
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const flag = params.get('techmana');
+    if (flag === null) return;
+
+    const reason = params.get('reason');
+    params.delete('techmana');
+    params.delete('reason');
+    const query = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`,
+    );
+
+    if (flag === 'ok') {
+      setTechmanaNotice({
+        kind: 'ok',
+        text: 'テクマナと連携しました。セーブデータはアカウントに保存されます。',
+      });
+      void refreshSession();
+    } else {
+      setTechmanaNotice({ kind: 'error', text: techmanaErrorText(reason) });
+    }
+  }, [refreshSession]);
 
   /** Tapped from the title screen; jumps to the difficulty picker. */
   const startMatch = useCallback(() => {
@@ -177,66 +218,107 @@ export function App() {
     setScene('title');
   }, []);
 
-  switch (scene) {
-    case 'title':
-      return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
-    case 'soloDifficulty':
-      return <DifficultyScene onConfirm={confirmDifficulty} onBack={() => setScene('title')} />;
-    case 'match':
-      return (
-        <MatchScene
-          key={matchKey}
-          fallIntervalNormal={fallIntervalFor(soloDifficulty)}
-          onEnd={handleEnd}
-          onQuit={handleQuit}
-        />
-      );
-    case 'result':
-      if (!result) {
-        // Shouldn't happen — a transition to 'result' always sets one
-        // first. Warn so a races shows up in dev, and fall back safely.
-        console.warn('[App] result scene with no result; falling back to title');
+  const renderScene = (): ReactElement => {
+    switch (scene) {
+      case 'title':
         return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
-      }
-      return <ResultScene result={result} onRestart={restartMatch} onTitle={handleQuit} />;
-    case 'lobby':
-      return <LobbyScene onJoinMatch={handleJoinMatch} onBack={() => setScene('title')} />;
-    case 'matchLobby':
-      return (
-        <MatchLobbyScene
-          roomId={matchRoomId}
-          nickname={matchNickname || loadAccount().playerName}
-          onLeave={() => setScene('lobby')}
-          onMatchStart={handleNetworkedMatchStart}
-        />
-      );
-    case 'rankings':
-      return <RankingsScene onBack={() => setScene('title')} />;
-    case 'networkedMatch':
-      if (!networkedStart) {
-        console.warn('[App] networkedMatch scene with no start payload; falling back to title');
-        return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
-      }
-      return (
-        <NetworkedMatchScene
-          room={networkedStart.room}
-          myPlayerId={networkedStart.myPlayerId}
-          playerOrder={networkedStart.playerOrder}
-          nicknamesByPlayerId={networkedStart.nicknamesByPlayerId}
-          seed={networkedStart.seed}
-          colorMode={networkedStart.colorMode}
-          dropQueue={
-            networkedStart.dropQueue as unknown as ReadonlyArray<
-              readonly [
-                import('@chaindrop/shared').PuyoColor,
-                import('@chaindrop/shared').PuyoColor,
-              ]
-            >
-          }
-          backSignal={networkedBackSignal}
-          onEnd={handleNetworkedMatchEnd}
-          onQuit={handleNetworkedQuit}
-        />
-      );
+      case 'soloDifficulty':
+        return <DifficultyScene onConfirm={confirmDifficulty} onBack={() => setScene('title')} />;
+      case 'match':
+        return (
+          <MatchScene
+            key={matchKey}
+            fallIntervalNormal={fallIntervalFor(soloDifficulty)}
+            onEnd={handleEnd}
+            onQuit={handleQuit}
+          />
+        );
+      case 'result':
+        if (!result) {
+          // Shouldn't happen — a transition to 'result' always sets one
+          // first. Warn so a races shows up in dev, and fall back safely.
+          console.warn('[App] result scene with no result; falling back to title');
+          return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
+        }
+        return <ResultScene result={result} onRestart={restartMatch} onTitle={handleQuit} />;
+      case 'lobby':
+        return <LobbyScene onJoinMatch={handleJoinMatch} onBack={() => setScene('title')} />;
+      case 'matchLobby':
+        return (
+          <MatchLobbyScene
+            roomId={matchRoomId}
+            nickname={matchNickname || loadAccount().playerName}
+            onLeave={() => setScene('lobby')}
+            onMatchStart={handleNetworkedMatchStart}
+          />
+        );
+      case 'rankings':
+        return <RankingsScene onBack={() => setScene('title')} />;
+      case 'networkedMatch':
+        if (!networkedStart) {
+          console.warn('[App] networkedMatch scene with no start payload; falling back to title');
+          return <TitleScene onStart={startMatch} onOnline={goOnline} onRankings={goRankings} />;
+        }
+        return (
+          <NetworkedMatchScene
+            room={networkedStart.room}
+            myPlayerId={networkedStart.myPlayerId}
+            playerOrder={networkedStart.playerOrder}
+            nicknamesByPlayerId={networkedStart.nicknamesByPlayerId}
+            seed={networkedStart.seed}
+            colorMode={networkedStart.colorMode}
+            dropQueue={
+              networkedStart.dropQueue as unknown as ReadonlyArray<
+                readonly [
+                  import('@chaindrop/shared').PuyoColor,
+                  import('@chaindrop/shared').PuyoColor,
+                ]
+              >
+            }
+            backSignal={networkedBackSignal}
+            onEnd={handleNetworkedMatchEnd}
+            onQuit={handleNetworkedQuit}
+          />
+        );
+    }
+  };
+
+  return (
+    <>
+      {techmanaNotice && (
+        <output className={`techmana-notice techmana-notice-${techmanaNotice.kind}`}>
+          <span>{techmanaNotice.text}</span>
+          <button
+            type="button"
+            className="techmana-notice-close"
+            aria-label="閉じる"
+            onClick={() => setTechmanaNotice(null)}
+          >
+            ×
+          </button>
+        </output>
+      )}
+      {renderScene()}
+    </>
+  );
+}
+
+interface Notice {
+  kind: 'ok' | 'error';
+  text: string;
+}
+
+/** Map the server's `reason` query param onto something a player can act on. */
+function techmanaErrorText(reason: string | null): string {
+  switch (reason) {
+    case 'denied':
+      return 'テクマナ側で連携が許可されませんでした。';
+    case 'expired':
+    case 'state':
+      return '連携の手続きが時間切れになりました。もう一度お試しください。';
+    case 'disabled':
+      return 'テクマナ連携は現在利用できません。';
+    default:
+      return 'テクマナと連携できませんでした。時間をおいてお試しください。';
   }
 }

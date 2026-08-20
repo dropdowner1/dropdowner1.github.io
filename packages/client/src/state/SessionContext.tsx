@@ -5,11 +5,17 @@
  *
  * On boot we ping `/api/auth/me` so an existing HttpOnly cookie
  * resurrects the session without the player having to log back in.
+ *
+ * Resolving to a logged-in user also kicks off a cloud-save sync. This
+ * is the one place that observes every way a session can appear —
+ * boot, password login, Techmana callback — so hanging the sync here
+ * means no caller has to remember to ask for it.
  */
 
 import type { PublicUser } from '@chaindrop/shared/protocol';
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { fetchMe } from '../api/auth';
+import { syncNow } from './cloudSave';
 
 interface SessionContextValue {
   /** null while the initial /me probe is in flight, then either the
@@ -32,6 +38,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try {
       const me = await fetchMe();
       setUser(me ?? undefined);
+      // Fire-and-forget: a failed or unlinked sync must not block the UI.
+      if (me) void syncNow();
     } catch (err) {
       console.warn('[session] /me failed, treating as guest', err);
       setUser(undefined);
@@ -43,7 +51,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   return (
-    <SessionContext.Provider value={{ user, refresh, setUser: (u) => setUser(u ?? undefined) }}>
+    <SessionContext.Provider
+      value={{
+        user,
+        refresh,
+        setUser: (u) => {
+          setUser(u ?? undefined);
+          if (u) void syncNow();
+        },
+      }}
+    >
       {children}
     </SessionContext.Provider>
   );

@@ -47,6 +47,32 @@ CREATE TABLE IF NOT EXISTS match_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_match_user ON match_history(user_id, played_at DESC);
+
+-- External identity links (Techmana SSO). Deliberately a separate table
+-- rather than extra columns on the users table: the DDL above is
+-- CREATE TABLE IF NOT EXISTS, so adding a column there would silently
+-- do nothing on a database that already exists (i.e. production). A
+-- brand-new table IS created on the next boot, so this lands without a
+-- migration runner.
+--
+-- Provider tokens live here so the browser never sees them; the server
+-- calls Techmana on the player's behalf.
+CREATE TABLE IF NOT EXISTS oauth_links (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider       TEXT    NOT NULL,
+  subject        TEXT    NOT NULL,
+  access_token   TEXT,
+  refresh_token  TEXT,
+  expires_at     TEXT,
+  scope          TEXT,
+  created_at     TEXT    NOT NULL,
+  updated_at     TEXT    NOT NULL,
+  UNIQUE (provider, subject),
+  UNIQUE (provider, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_links_user ON oauth_links(user_id);
 `;
 
 export function applySchema(db: Database): void {

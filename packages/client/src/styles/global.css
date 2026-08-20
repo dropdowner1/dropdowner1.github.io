@@ -1196,6 +1196,9 @@ html[data-color-mode="high-contrast"] {
 
 .account-techmana-btn {
   display: block;
+  width: 100%;
+  border: 0;
+  cursor: pointer;
   text-align: center;
   text-decoration: none;
   background: var(--snes-cyan);
@@ -1208,9 +1211,24 @@ html[data-color-mode="high-contrast"] {
   transition: transform 60ms ease, filter 60ms ease;
 }
 
-.account-techmana-btn:hover {
+.account-techmana-btn:hover:not(:disabled) {
   filter: brightness(1.08);
   transform: translate(1px, 1px);
+}
+
+.account-techmana-btn:disabled {
+  cursor: default;
+  filter: grayscale(0.6) brightness(0.8);
+}
+
+/* Unlink sits next to a destructive-ish action, so it recedes rather
+   than competing with the primary button below it. */
+.account-techmana-btn-quiet {
+  background: transparent;
+  color: var(--snes-text-dim);
+  font-size: 0.9rem;
+  padding: 8px 12px;
+  box-shadow: inset 0 0 0 2px var(--snes-panel-shadow);
 }
 
 .account-techmana-note {
@@ -1818,4 +1836,46 @@ html[data-color-mode="high-contrast"] {
   display: flex;
   justify-content: center;
   gap: 12px;
+}
+
+/* ---------------------------------------------------------------
+   Techmana link result banner.
+
+   Floats over the canvas rather than displacing it — the scene below
+   is a fixed-size play field and pushing it down would resize the
+   board mid-render.
+   --------------------------------------------------------------- */
+.techmana-notice {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(92vw, 520px);
+  padding: 10px 14px;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: #05121b;
+  background: var(--snes-cyan);
+  box-shadow: inset 0 0 0 2px #2b8fb8, 2px 2px 0 0 var(--snes-panel-shadow);
+}
+
+.techmana-notice-error {
+  background: var(--snes-accent, #e8b23a);
+  box-shadow: inset 0 0 0 2px #8a6410, 2px 2px 0 0 var(--snes-panel-shadow);
+}
+
+.techmana-notice-close {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 2px 4px;
 }

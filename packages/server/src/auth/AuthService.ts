@@ -7,6 +7,7 @@
  * directly against an in-memory DB without spinning up Express.
  */
 
+import { randomBytes } from 'node:crypto';
 import {
   type LoginRequest,
   type PublicUser,
@@ -111,6 +112,46 @@ export class AuthService {
     const row = this.findById(dbUserId);
     if (!row) return null;
     return { dbUserId, user: { userId: row.user_id, playerName: row.player_name } };
+  }
+
+  /**
+   * Mint a session for a user that has already been authenticated by
+   * some other means (currently: Techmana SSO). Kept separate from
+   * `login()` so the password path keeps its own shape, but it hands
+   * back the exact same `AuthSession` the routes already know how to
+   * turn into a cookie.
+   */
+  mintSessionFor(dbUserId: number): AuthSession | null {
+    const row = this.findById(dbUserId);
+    if (!row) return null;
+    return this.mintSession(row.id, { userId: row.user_id, playerName: row.player_name });
+  }
+
+  /**
+   * 外部IDプロバイダ経由で初めて来た人のアカウントを作る。
+   *
+   * `password_hash` は NOT NULL なので値は入れるが、検証に通らない
+   * ランダム値を入れる。結果として「このアカウントはパスワードでは
+   * ログインできない」状態になり、それが意図した動作。
+   * `userId` が既に埋まっていた場合は後ろに数字を足して回避する。
+   */
+  createExternalUser(input: { userId: string; playerName: string }): number {
+    const now = new Date().toISOString();
+    const unusable = hashSync(randomBytes(32).toString('hex'), BCRYPT_COST);
+    const playerName = input.playerName.trim() || 'プレイヤー';
+
+    let candidate = input.userId;
+    for (let i = 0; i < 50; i += 1) {
+      if (!this.findByUserId(candidate)) break;
+      candidate = `${input.userId}_${i + 2}`;
+    }
+    const result = this.db
+      .prepare(
+        `INSERT INTO users (user_id, player_name, password_hash, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(candidate, playerName, unusable, now, now);
+    return Number(result.lastInsertRowid);
   }
 
   // ------------------------------ private ------------------------------
