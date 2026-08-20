@@ -16,12 +16,14 @@ import cors from 'cors';
 import express from 'express';
 import basicAuth from 'express-basic-auth';
 import { AuthService } from './auth/AuthService';
+import { TechmanaService } from './auth/TechmanaService';
 import { config } from './config';
 import { openDatabase } from './db/Database';
 import { LobbyRoom } from './rooms/LobbyRoom';
 import { MatchRoom } from './rooms/MatchRoom';
 import { authRouter } from './routes/auth';
 import { rankingsRouter, recordsRouter } from './routes/records';
+import { syncRouter, techmanaRouter } from './routes/techmana';
 import { RecordsService } from './services/RecordsService';
 import { logger } from './util/logger';
 
@@ -29,6 +31,7 @@ const app = express();
 const db = openDatabase({ path: config.databasePath });
 const authService = new AuthService(db);
 const recordsService = new RecordsService(db);
+const techmanaService = new TechmanaService(db);
 
 app.use(
   cors({
@@ -44,7 +47,16 @@ app.use(
   }),
 );
 app.use(cookieParser());
-app.use(express.json({ limit: '32kb' }));
+
+// Everything except the cloud save is small. `/api/sync` mounts its own
+// parser with a 1MB limit, so this one has to step aside for it —
+// otherwise the first parser to see the request rejects it with 413 and
+// the larger limit downstream never gets a say.
+const smallJson = express.json({ limit: '32kb' });
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/sync')) return next();
+  smallJson(req, res, next);
+});
 app.disable('x-powered-by');
 
 app.get('/healthz', (_req, res) => {
@@ -55,6 +67,9 @@ app.get('/healthz', (_req, res) => {
   });
 });
 
+// テクマナSSOは `/api/auth/techmana/*`。汎用の `/api/auth` より先に
+// 積んで、どちらが処理するかを一目で分かるようにしておく。
+app.use('/api/auth/techmana', techmanaRouter(authService, techmanaService));
 app.use('/api/auth', authRouter(authService));
 app.use('/api/me', (_req, res, next) => {
   // /api/me is exposed under /api/auth/me; keep the legacy mount in
@@ -64,6 +79,10 @@ app.use('/api/me', (_req, res, next) => {
 });
 app.use('/api/records', recordsRouter(authService, recordsService));
 app.use('/api/rankings', rankingsRouter(recordsService));
+// クラウドセーブ。中身はテクマナ側に保管し、ここは中継のみ。
+// セーブ本体は他のAPIより大きくなりうるので、この経路だけ上限を上げる
+// (テクマナ側の上限1MBに合わせる)。
+app.use('/api/sync', express.json({ limit: '1mb' }), syncRouter(authService, techmanaService));
 
 if (config.monitor.enabled) {
   app.use(

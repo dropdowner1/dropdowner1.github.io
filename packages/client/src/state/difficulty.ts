@@ -16,6 +16,8 @@
  * eventually trend toward `FALL_INTERVAL_MIN = 6`.
  */
 
+import { notifyLocalStateChanged } from './persistBus';
+
 export type DifficultyLevel =
   | 'gekikan'
   | 'amakuchi'
@@ -66,6 +68,7 @@ export function saveDifficulty(id: DifficultyLevel): void {
   } catch {
     /* ignore */
   }
+  notifyLocalStateChanged();
 }
 
 export function fallIntervalFor(id: DifficultyLevel): number {

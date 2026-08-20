@@ -8,6 +8,8 @@
  * on first run.
  */
 
+import { notifyLocalStateChanged } from './persistBus';
+
 export type ColorMode = 'standard' | 'high-contrast' | 'mono';
 
 export interface Settings {
@@ -48,6 +50,7 @@ export function saveSettings(settings: Settings): void {
   } catch {
     /* quota exceeded / privacy mode — silently ignore. */
   }
+  notifyLocalStateChanged();
 }
 
 function clampVolume(v: number): number {

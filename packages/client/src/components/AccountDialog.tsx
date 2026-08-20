@@ -13,13 +13,24 @@
  * Server errors (USER_ID_TAKEN, INVALID_CREDENTIALS, etc.) are
  * surfaced inline with their server-provided message.
  *
+ * テクマナ (Techmana) SSO も選べます。押すとサーバの `/api/auth/techmana/start`
+ * へ全画面遷移し、同意後に戻ってくる頃にはセッション Cookie が張られています。
+ * 既にログイン中に押した場合は新しいアカウントを作らず、今のアカウントに
+ * テクマナを紐付けます (併存方針)。
+ *
  * 「ゲストで続行」を選ぶとサーバ呼び出しを行わずローカルゲストで進みます。
  */
 
 import type { PublicUser } from '@chaindrop/shared/protocol';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { login as apiLogin, logout as apiLogout, signup as apiSignup } from '../api/auth';
 import { HttpApiError } from '../api/http';
+import {
+  type TechmanaStatus,
+  fetchTechmanaStatus,
+  techmanaStartUrl,
+  unlinkTechmana,
+} from '../api/sync';
 import { useSession } from '../state/SessionContext';
 import {
   type AccountFormErrors,
@@ -28,14 +39,7 @@ import {
   saveAccount,
   validateAccountForm,
 } from '../state/account';
-
-/**
- * Techmana (テクマナ) — the in-house account/e-learning system that
- * ChainDrop accounts will eventually federate with. Its SSO is still
- * in development, so for now this is an external link out to it; the
- * local ID+password + guest flows below remain the working path.
- */
-const TECHMANA_URL = 'https://techmana.adamant-group.jp';
+import { resetSeq } from '../state/cloudSave';
 
 interface Props {
   /** Called after a successful auth (or guest pass-through) with the
@@ -56,6 +60,43 @@ export function AccountDialog({ onClose }: Props) {
   const [errors, setErrors] = useState<AccountFormErrors>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [techmana, setTechmana] = useState<TechmanaStatus | null>(null);
+
+  // Only meaningful once we know who we are; guests have nothing to link.
+  useEffect(() => {
+    if (!sessionUser) return;
+    let alive = true;
+    void fetchTechmanaStatus()
+      .then((s) => {
+        if (alive) setTechmana(s);
+      })
+      .catch(() => {
+        /* status is decoration — a failure just hides the row */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [sessionUser]);
+
+  /**
+   * Full-page navigation, deliberately. The server has to set a cookie
+   * and 302 across to Techmana, neither of which fetch can do.
+   */
+  const startTechmana = useCallback(() => {
+    window.location.assign(techmanaStartUrl());
+  }, []);
+
+  const handleUnlink = useCallback(async () => {
+    setBusy(true);
+    try {
+      await unlinkTechmana();
+      setTechmana({ linked: false, subject: null, enabled: true });
+    } catch (err) {
+      setServerError(err instanceof HttpApiError ? err.message : '連携を解除できませんでした');
+    } finally {
+      setBusy(false);
+    }
+  }, []);
 
   const handleSignup = useCallback(async () => {
     const input = { playerName, userId, password };
@@ -121,6 +162,8 @@ export function AccountDialog({ onClose }: Props) {
       /* even if the server call fails the local state will reset */
     }
     setSessionUser(null);
+    // The next account to log in here starts its own save history.
+    resetSeq();
     // Reset the local account record into guest mode so other parts of
     // the UI (matchmaker, marquee) immediately reflect the change.
     const acc = loadAccount();
@@ -140,6 +183,38 @@ export function AccountDialog({ onClose }: Props) {
           <br />
           <span className="account-loggedin-id">@{sessionUser.userId}</span>
         </p>
+
+        {techmana?.enabled &&
+          (techmana.linked ? (
+            <div className="account-techmana">
+              <p className="account-techmana-note">
+                テクマナと連携済み。セーブデータはアカウントに保存されます。
+              </p>
+              <button
+                type="button"
+                className="account-techmana-btn account-techmana-btn-quiet"
+                disabled={busy}
+                onClick={() => void handleUnlink()}
+              >
+                テクマナ連携を解除
+              </button>
+            </div>
+          ) : (
+            <div className="account-techmana">
+              <button
+                type="button"
+                className="account-techmana-btn"
+                disabled={busy}
+                onClick={startTechmana}
+              >
+                テクマナと連携する
+              </button>
+              <p className="account-techmana-note">
+                連携するとセーブデータがテクマナのアカウントに保存され、別の端末でも続きから遊べます。
+              </p>
+            </div>
+          ))}
+
         <div className="account-actions">
           <button
             type="button"
@@ -167,16 +242,16 @@ export function AccountDialog({ onClose }: Props) {
       <h2 className="account-title">アカウント</h2>
 
       <div className="account-techmana">
-        <a
+        <button
+          type="button"
           className="account-techmana-btn"
-          href={TECHMANA_URL}
-          target="_blank"
-          rel="noopener noreferrer"
+          disabled={busy}
+          onClick={startTechmana}
         >
-          テクマナでログイン ↗
-        </a>
+          テクマナでログイン
+        </button>
         <p className="account-techmana-note">
-          今後アカウントはテクマナ（社内システム）で共通化予定です。
+          テクマナ（社内システム）のアカウントでログインできます。セーブデータはそのアカウントに保存され、別の端末でも続きから遊べます。
         </p>
       </div>
 
