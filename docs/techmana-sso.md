@@ -98,13 +98,68 @@ DB に対して列を足しても**何も起きない**。新規テーブルな�
 
 ### 1. テクマナ側にクライアント登録
 
-管理画面 > 連携アプリ で新規登録:
+管理画面 `/admin/apps` > 連携アプリの追加 から登録する:
 
-- **redirect_uri**: `https://<Railwayのドメイン>/api/auth/techmana/callback`
-- **allowed_origins**: `https://dropdowner1.github.io`
-- **scope**: `profile save`
+- **アプリ名**: `ChainDrop`
+- **クライアントID**: `chaindrop`
+- **リダイレクトURI**: `https://<Railwayのドメイン>/api/auth/techmana/callback`
+- **許可オリジン**: **空のまま**(理由は下記)
+- **スコープ**: `save` にチェック(hidden が `profile save` になる)
+- **公開アプリ**: チェックしない(chaindrop はシークレットを持つ機密クライアント)
 
-発行された `client_id` / `client_secret` を控える。
+#### 許可オリジンを空にする理由
+
+chaindrop のブラウザはテクマナのドメインを一切知らない。同意画面へは
+トップレベル遷移で移動するだけで、`fetch` の宛先は全て自前のサーバ
+(Railway)。つまり CORS ヘッダは最初から不要。
+
+さらに `ApiController::applyCors()` の照会には **client_id の条件が無い**:
+
+```sql
+SELECT 1 FROM el_oauth_clients
+ WHERE status = 'active' AND FIND_IN_SET(?, ...allowed_origins...) > 0
+```
+
+ここに書いたオリジンは「そのアプリのために開く」のではなく、テクマナの
+`/api/v1/*` 全体に対して、現在および将来の全クライアント分まとめて開く。
+必要のないオリジンは書かない。ブラウザ直叩きが後から必要になったら
+編集画面で足せる(`status` を変えない限りトークンは失効しない)。
+
+`client_secret` は登録直後に一度だけ表示され、以後は再表示できない
+(DB には bcrypt ハッシュしか残らない)。控え損ねたら再発行するしかない。
+
+ブラウザを開けない場合は同じ処理を行う CLI がある:
+
+```bash
+php bin/register_oauth_client.php chaindrop 'ChainDrop' \
+  'https://<Railwayのドメイン>/api/auth/techmana/callback' \
+  '' \
+  'profile save'
+```
+
+標準出力に平文シークレットだけを出すので、そのまま次の手順へ渡せる:
+
+```bash
+ssh <server> 'cd ~/ses-elearning && php8.3 bin/register_oauth_client.php ...' \
+  | railway variables --set-from-stdin TECHMANA_CLIENT_SECRET
+```
+
+このスクリプトは登録後に `password_verify` と実際のトークンエンドポイント
+呼び出しでシークレットが通ることを確認してから終了する。
+
+#### 値が1文字でも違うと落ちる箇所
+
+| 項目 | 規則 |
+| --- | --- |
+| `redirect_uris` | **完全一致**。前方一致もURL正規化もしない。複数書く場合は改行(LF)区切り |
+| `allowed_origins` | 空で良い。書く場合はスキーム必須・パス不可。**末尾スラッシュがあると CORS 照合に失敗する** |
+| `scopes` | 空白区切り。`profile` と `save` 以外は無視される。管理UIでは自由入力ではなく `save` チェックボックスが hidden を書き換える方式なので、登録後に一覧で `profile save` に なっているか目視確認する(`profile` だけだと連携は成功するのにセーブAPIだけ 403 になる) |
+| `status` | `active` 以外は全ての照会経路で弾かれる |
+
+`redirect_uri` はトークン取得時にも再検証される。このときは登録一覧では
+なく認可コードに凍結された値と比較されるため、`/oauth/authorize` と
+`/oauth/token` で同一の文字列を送る必要がある(chaindrop は同じ
+`TECHMANA_REDIRECT_URI` を使うので自動的に満たされる)。
 
 ### 2. Railway に環境変数を設定
 
@@ -123,6 +178,17 @@ CLIENT_BASE_URL=https://dropdowner1.github.io/
   アカウントごと消える
 - `ALLOWED_ORIGINS` — `https://dropdowner1.github.io` を含むこと。
   `*` だとブラウザが Cookie を送らない
+- **`/data` に永続ボリュームが実際にマウントされていること**
+
+最後の項目は変数の設定だけでは足りない。`DATABASE_PATH=/data/chaindrop.db`
+が設定済みでもボリュームが無ければ `/data` はコンテナ内の一時領域になり
+(`openDatabase` が親ディレクトリを自動作成するため起動は成功してしまう)、
+**再デプロイのたびに全アカウントが消える**。確認と作成:
+
+```bash
+railway volume list --json      # mountPath が /data のものがあるか
+railway volume add --mount-path /data
+```
 
 `TECHMANA_REDIRECT_URI` はテクマナ側の登録値と 1 文字でも違うと
 テクマナが認可を拒否する。
